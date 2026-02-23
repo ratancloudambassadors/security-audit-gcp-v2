@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Cloud AuditScope</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Ionicons -->
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    <!-- Google Identity Services -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div class="login-page-wrapper">
+        <!-- Left: Visual Pane -->
+        <div class="login-visual-pane">
+            <div class="security-pulse-container">
+                <div class="pulse-circle"></div>
+                <div class="pulse-circle"></div>
+                <div class="pulse-circle"></div>
+            </div>
+            <div class="visual-content">
+                <ion-icon name="shield-checkmark-outline"></ion-icon>
+                <h1>AuditScope Console</h1>
+                <p>Simple and safe security for your cloud accounts.</p>
+                
+                <div style="margin-top: 40px; display: flex; gap: 20px; justify-content: center;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 800;">1200+</div>
+                        <div style="font-size: 0.65rem; text-transform: uppercase; opacity: 0.6; letter-spacing: 0.5px;">Safety Checks</div>
+                    </div>
+                    <div style="border-left: 1px solid rgba(255,255,255,0.2);"></div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 800;">Real-Time</div>
+                        <div style="font-size: 0.65rem; text-transform: uppercase; opacity: 0.6; letter-spacing: 0.5px;">Vulnerability Scan</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Form Pane -->
+        <div class="login-form-pane">
+            <div class="login-card">
+                <div class="login-header">
+                    <h2 style="color: var(--primary);">Welcome Back</h2>
+                    <p>Login to your account to check your cloud safety.</p>
+                </div>
+                
+                <form id="manual-login-form" class="login-form">
+                    <div class="input-group">
+                        <label>Identity / Primary Email</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="mail-outline"></ion-icon>
+                            <input type="text" id="username" placeholder="name@enterprise.com" required>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Security Key / Password</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="lock-closed-outline"></ion-icon>
+                            <input type="password" id="password" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="login-btn-futuristic" style="margin-top: 15px; height: 55px; font-size: 1.1rem;">
+                        <span>Login</span>
+                    </button>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <span style="color: #666; font-size: 0.9rem;">New to AuditScope?</span>
+                        <a href="#" id="show-signup-link" style="color: var(--primary); font-weight: 600; text-decoration: none; margin-left: 5px;">Create Account</a>
+                    </div>
+                </form>
+
+                <form id="signup-form" class="login-form" style="display: none;">
+                    <div class="input-group">
+                        <label>Full Name</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="person-outline"></ion-icon>
+                            <input type="text" id="reg-displayname" placeholder="John Doe" required>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Company Name</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="business-outline"></ion-icon>
+                            <input type="text" id="reg-company" placeholder="Acme Corp" required>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Email Address</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="mail-outline"></ion-icon>
+                            <input type="email" id="reg-username" placeholder="name@company.com" required>
+                        </div>
+                    </div>
+                     <div class="input-group">
+                        <label>Set Password</label>
+                        <div class="input-with-icon">
+                            <ion-icon name="key-outline"></ion-icon>
+                            <input type="password" id="reg-password" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="login-btn-futuristic" style="margin-top: 15px; height: 55px; font-size: 1.1rem; background: linear-gradient(135deg, #00C853 0%, #009688 100%);">
+                        <span>REGISTER ACCOUNT</span>
+                        <ion-icon name="person-add-outline"></ion-icon>
+                    </button>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <span style="color: #666; font-size: 0.9rem;">Already have access?</span>
+                        <a href="#" id="show-login-link" style="color: var(--primary); font-weight: 600; text-decoration: none; margin-left: 5px;">Login Here</a>
+                    </div>
+                </form>
+
+                <div class="divider">
+                    <span>OR ENTERPRISE IDENTITY</span>
+                </div>
+                
+                <div id="google-login-container">
+                    <div id="g_id_onload" 
+                        data-client_id="" 
+                        data-context="signin" 
+                        data-ux_mode="popup" 
+                        data-callback="handleCredentialResponse" 
+                        data-auto_prompt="false">
+                    </div>
+                    <div class="g_id_signin" 
+                        data-type="standard" 
+                        data-shape="pill" 
+                        data-theme="outline" 
+                        data-text="signin_with" 
+                        data-size="large" 
+                        data-logo_alignment="left" 
+                        style="display: flex; justify-content: center; margin-bottom: 25px;">
+                    </div>
+                </div>
+
+                <div id="google-warning" style="display: none; background: #fffcf0; border: 1px solid #ffcc00; padding: 15px; border-radius: 12px; margin-bottom: 25px; display: flex; align-items: flex-start; gap: 12px;">
+                    <ion-icon name="warning" style="color: #ff9900; font-size: 1.4rem; flex-shrink: 0;"></ion-icon>
+                    <div style="font-size: 0.85rem; color: #666; line-height: 1.4;">
+                        <strong>Provider Unconfigured:</strong> External identity federation is not active. Please use the <strong>Guest Access</strong> bypass below.
+                    </div>
+                </div>
+
+                <button id="mock-login-btn" class="mock-btn-futuristic" style="height: 52px; border-radius: 12px;">
+                    <ion-icon name="finger-print-outline" style="font-size: 1.4rem;"></ion-icon>
+                    <span>BYPASS TO GUEST CONSOLE</span>
+                </button>
+                
+                <div class="login-footer" style="text-align: center; border-top: 1px solid var(--glass-border); padding-top: 25px;">
+                    <p>Authorized access only. <a href="index.html" style="margin-left: 10px; color: var(--primary); font-weight: 800;">Go Back Home</a></p>
+                    <div class="system-status" style="margin-top: 15px;"><span class="pulse-dot"></span> System Status: Online & Secure</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+    <script>
+        async function initGoogleLogin() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                
+                if (config.isDemo || config.googleClientId === 'MOCK_CLIENT_ID_FOR_DEMO') {
+                    document.getElementById('google-warning').style.display = 'block';
+                    document.getElementById('google-login-container').style.opacity = '0.5';
+                    document.getElementById('google-login-container').style.pointerEvents = 'none';
+                } else {
+                    const gIdOnload = document.getElementById('g_id_onload');
+                    gIdOnload.setAttribute('data-client_id', config.googleClientId);
+                    
+                    // Re-initialize Google login if scripts are already loaded
+                    if (window.google && window.google.accounts) {
+                        google.accounts.id.initialize({
+                            client_id: config.googleClientId,
+                            callback: handleCredentialResponse
+                        });
+                        google.accounts.id.renderButton(
+                            document.querySelector(".g_id_signin"),
+                            { theme: "filled_black", size: "large", shape: "pill" }
+                        );
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load config:", err);
+            }
+        }
+
+        function handleCredentialResponse(response) {
+            console.log("Encoded JWT ID token: " + response.credential);
+            loginWithBackend(response.credential);
+        }
+
+        window.onload = initGoogleLogin;
+    </script>
+</body>
+</html>

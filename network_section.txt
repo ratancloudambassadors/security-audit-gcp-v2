@@ -1,0 +1,126 @@
+    // --- 3. Network & Firewall ---
+    await auditWrapper("Network & Firewall", async () => {
+        const compute = google.compute({ version: 'v1', auth: authClient });
+        const dns = google.dns({ version: 'v1', auth: authClient });
+        
+        // 1. Ensure That the Default Network Does Not Exist in a Project
+        const networksRes = await compute.networks.list({ project: projectId });
+        const networks = networksRes.data.items || [];
+        
+        const defaultNetwork = networks.find(n => n.name === 'default');
+        if (defaultNetwork) {
+            addVuln('network', 'default', 'Default network exists in the project.', 'High', 'Delete the default network and create custom VPC networks with specific firewall rules.');
+        } else {
+            markSecure('network');
+        }
+        
+        // 2. Ensure Legacy Networks Do Not Exist for Older Projects
+        networks.forEach(network => {
+            if (network.IPv4Range) {
+                addVuln('network', network.name, 'Legacy network detected (uses IPv4Range).', 'High', 'Migrate to VPC network with custom subnet mode for better security and flexibility.');
+            } else {
+                markSecure('network');
+            }
+            
+            // Auto-create subnetworks check
+            if (network.autoCreateSubnetworks) {
+                addVuln('network', network.name, 'Auto-create subnetworks is enabled.', 'Medium', 'Use custom subnet mode for better network control.');
+            }
+        });
+        
+        // 3. Ensure That SSH Access Is Restricted From the Internet
+        // 4. Ensure That RDP Access Is Restricted From the Internet
+        const firewallRes = await compute.firewalls.list({ project: projectId });
+        const firewalls = firewallRes.data.items || [];
+        
+        firewalls.forEach(fw => {
+            const sourceRanges = fw.sourceRanges || [];
+            const allowed = fw.allowed || [];
+            
+            // Check if rule allows traffic from internet (0.0.0.0/0)
+            if (sourceRanges.includes('0.0.0.0/0')) {
+                allowed.forEach(rule => {
+                    const ports = rule.ports || [];
+                    const protocol = rule.IPProtocol || '';
+                    
+                    // Check for SSH (port 22)
+                    if (protocol === 'tcp' && (ports.includes('22') || ports.length === 0)) {
+                        addVuln('network', fw.name, 'SSH access (port 22) is allowed from the internet (0.0.0.0/0).', 'Critical', 'Restrict SSH access to specific trusted IP addresses only. Use Identity-Aware Proxy for secure access.');
+                    }
+                    
+                    // Check for RDP (port 3389)
+                    if (protocol === 'tcp' && (ports.includes('3389') || ports.length === 0)) {
+                        addVuln('network', fw.name, 'RDP access (port 3389) is allowed from the internet (0.0.0.0/0).', 'Critical', 'Restrict RDP access to specific trusted IP addresses only. Use bastion hosts or VPN.');
+                    }
+                    
+                    // Check for other critical ports
+                    const criticalPorts = ['3306', '5432', '1433', '27017', '6379'];
+                    criticalPorts.forEach(port => {
+                        if (ports.includes(port) || ports.length === 0) {
+                            addVuln('network', fw.name, `Database port ${port} is exposed to the internet (0.0.0.0/0).`, 'High', `Restrict access to port ${port} to specific trusted IP ranges.`);
+                        }
+                    });
+                });
+            }
+        });
+        
+        // 5. Ensure that VPC Flow Logs is Enabled for Every Subnet in a VPC Network
+        const subnetsRes = await compute.subnetworks.aggregatedList({ project: projectId });
+        const subnetItems = subnetsRes.data.items || {};
+        
+        let totalSubnets = 0;
+        let subnetsWithFlowLogs = 0;
+        
+        for (const region in subnetItems) {
+            const subnets = subnetItems[region].subnetworks || [];
+            subnets.forEach(subnet => {
+                totalSubnets++;
+                if (!subnet.enableFlowLogs) {
+                    addVuln('network', subnet.name, `VPC Flow Logs are disabled for subnet in ${region}.`, 'Medium', 'Enable VPC Flow Logs for network monitoring, troubleshooting, and security analysis.');
+                } else {
+                    subnetsWithFlowLogs++;
+                    markSecure('network');
+                }
+                
+                // Check for Private Google Access
+                if (!subnet.privateIpGoogleAccess) {
+                    addVuln('network', subnet.name, 'Private Google Access is disabled.', 'Low', 'Enable Private Google Access to allow VMs without external IPs to access Google services.');
+                }
+            });
+        }
+        
+        // 6. Ensure That DNSSEC Is Enabled for Cloud DNS
+        // 7. Ensure That RSASHA1 Is Not Used for the Key
+        // 8. Ensure That RSASHA1 Is Not Used for the Zone
+        try {
+            const managedZonesRes = await dns.managedZones.list({ project: projectId });
+            const zones = managedZonesRes.data.managedZones || [];
+            
+            zones.forEach(zone => {
+                // Check if DNSSEC is enabled
+                if (!zone.dnssecConfig || zone.dnssecConfig.state !== 'on') {
+                    addVuln('network', zone.name, 'DNSSEC is not enabled for Cloud DNS zone.', 'Medium', 'Enable DNSSEC to protect against DNS spoofing and cache poisoning attacks.');
+                } else {
+                    markSecure('network');
+                    
+                    // Check for RSASHA1 algorithm usage in keys
+                    const defaultKeySpecs = zone.dnssecConfig.defaultKeySpecs || [];
+                    defaultKeySpecs.forEach(keySpec => {
+                        if (keySpec.algorithm === 'rsasha1') {
+                            if (keySpec.keyType === 'keySigning') {
+                                addVuln('network', zone.name, 'DNSSEC uses weak RSASHA1 algorithm for key signing.', 'High', 'Update DNSSEC to use stronger algorithms like RSASHA256 or ECDSAP256SHA256.');
+                            }
+                            if (keySpec.keyType === 'zoneSigning') {
+                                addVuln('network', zone.name, 'DNSSEC uses weak RSASHA1 algorithm for zone signing.', 'High', 'Update zone signing to use stronger algorithms like RSASHA256 or ECDSAP256SHA256.');
+                            }
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            logCallback(`Cloud DNS check skipped: ${e.message}`);
+        }
+        
+        // Summary logging
+        logCallback(`Network scan complete: ${totalSubnets} subnets checked, ${subnetsWithFlowLogs} with Flow Logs enabled.`);
+    });

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Audit Report - AuditScope</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .report-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .report-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+        }
+        .report-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2rem;
+        }
+        .report-meta {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .report-body {
+            padding: 40px;
+        }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .summary-card {
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .summary-card.high { background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); color: white; }
+        .summary-card.medium { background: linear-gradient(135deg, #feca57 0%, #ff9ff3 100%); color: white; }
+        .summary-card.low { background: linear-gradient(135deg, #48dbfb 0%, #0abde3 100%); color: white; }
+        .summary-card.secure { background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%); color: white; }
+        .summary-card h3 {
+            font-size: 3rem;
+            margin: 0;
+            font-weight: 700;
+        }
+        .summary-card p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-weight: 600;
+        }
+        .service-section {
+            margin-bottom: 40px;
+        }
+        .service-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .vulnerability-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .vulnerability-table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        .vulnerability-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .vulnerability-table tr:hover {
+            background: #f8f9fa;
+        }
+        .severity-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .severity-high { background: #ff6b6b; color: white; }
+        .severity-medium { background: #feca57; color: #333; }
+        .severity-low { background: #48dbfb; color: white; }
+        .back-button {
+            background: white;
+            color: #667eea;
+            border: 2px solid white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .back-button:hover {
+            background: rgba(255,255,255,0.9);
+        }
+        .loading {
+            text-align: center;
+            padding: 100px 20px;
+        }
+        .loading h2 {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <h2>Loading Report...</h2>
+    </div>
+
+    <div class="report-container" id="report" style="display: none;">
+        <div class="report-header">
+            <a href="dashboard.html" class="back-button">← Back to Dashboard</a>
+            <h1 id="report-title">Security Audit Report</h1>
+            <div class="report-meta">
+                <div class="meta-item">
+                    <ion-icon name="calendar-outline" style="font-size: 1.5rem;"></ion-icon>
+                    <div>
+                        <strong>Scan Date:</strong><br>
+                        <span id="scan-date">-</span>
+                    </div>
+                </div>
+                <div class="meta-item">
+                    <ion-icon name="cloud-outline" style="font-size: 1.5rem;"></ion-icon>
+                    <div>
+                        <strong>Platform:</strong><br>
+                        <span id="platform">-</span>
+                    </div>
+                </div>
+                <div class="meta-item">
+                    <ion-icon name="folder-outline" style="font-size: 1.5rem;"></ion-icon>
+                    <div>
+                        <strong>Project:</strong><br>
+                        <span id="project-name">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="report-body">
+            <div class="summary-cards">
+                <div class="summary-card high">
+                    <h3 id="high-count">0</h3>
+                    <p>High Risk</p>
+                </div>
+                <div class="summary-card medium">
+                    <h3 id="medium-count">0</h3>
+                    <p>Medium Risk</p>
+                </div>
+                <div class="summary-card low">
+                    <h3 id="low-count">0</h3>
+                    <p>Low Risk</p>
+                </div>
+                <div class="summary-card secure">
+                    <h3 id="secure-count">0</h3>
+                    <p>Secure</p>
+                </div>
+            </div>
+
+            <div id="services-container"></div>
+        </div>
+    </div>
+
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    
+    <script>
+        // Get scan ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const scanId = urlParams.get('scanId');
+        const projectId = urlParams.get('projectId');
+
+        if (!scanId && !projectId) {
+            document.getElementById('loading').innerHTML = '<h2 style="color: white;">❌ No scan specified</h2><a href="dashboard.html" class="back-button">Back to Dashboard</a>';
+        } else {
+            loadReport();
+        }
+
+        async function loadReport() {
+            try {
+                let response;
+                
+                if (scanId) {
+                    // Load specific scan by ID
+                    response = await fetch(`/api/scan-results/${scanId}`);
+                } else if (projectId) {
+                    // Load latest scan for project
+                    const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+                    const userId = user.email || user.username || user.name;
+                    response = await fetch(`/api/scan-results/latest?userId=${encodeURIComponent(userId)}&platform=GCP`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success || !data.scan) {
+                    throw new Error('Scan not found');
+                }
+
+                const scan = data.scan;
+                const results = scan.results;
+
+                // Update header
+                document.getElementById('report-title').textContent = `${scan.projectName || scan.projectId} - Security Report`;
+                document.getElementById('scan-date').textContent = new Date(scan.timestamp).toLocaleString();
+                document.getElementById('platform').textContent = scan.platform;
+                document.getElementById('project-name').textContent = scan.projectName || scan.projectId;
+
+                // Calculate summary
+                let high = 0, medium = 0, low = 0, secure = 0;
+                const services = results.services || {};
+
+                Object.values(services).forEach(service => {
+                    high += service.summary?.high || 0;
+                    medium += service.summary?.medium || 0;
+                    low += service.summary?.low || 0;
+                    secure += service.summary?.secure || 0;
+                });
+
+                document.getElementById('high-count').textContent = high;
+                document.getElementById('medium-count').textContent = medium;
+                document.getElementById('low-count').textContent = low;
+                document.getElementById('secure-count').textContent = secure;
+
+                // Render services
+                const container = document.getElementById('services-container');
+                container.innerHTML = '';
+
+                Object.entries(services).forEach(([serviceName, serviceData]) => {
+                    if (serviceData.vulnerabilities && serviceData.vulnerabilities.length > 0) {
+                        const section = document.createElement('div');
+                        section.className = 'service-section';
+
+                        section.innerHTML = `
+                            <div class="service-header">
+                                <h2>${serviceName}</h2>
+                                <div>
+                                    <span class="severity-badge severity-high">${serviceData.summary.high} High</span>
+                                    <span class="severity-badge severity-medium">${serviceData.summary.medium} Medium</span>
+                                    <span class="severity-badge severity-low">${serviceData.summary.low} Low</span>
+                                </div>
+                            </div>
+                            <table class="vulnerability-table">
+                                <thead>
+                                    <tr>
+                                        <th>Asset</th>
+                                        <th>Description</th>
+                                        <th>Severity</th>
+                                        <th>Remediation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${serviceData.vulnerabilities.map(vuln => `
+                                        <tr>
+                                            <td><code>${vuln.asset}</code></td>
+                                            <td>${vuln.description}</td>
+                                            <td><span class="severity-badge severity-${vuln.severity.toLowerCase()}">${vuln.severity}</span></td>
+                                            <td>${vuln.remediation}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        `;
+
+                        container.appendChild(section);
+                    }
+                });
+
+                // Show report
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('report').style.display = 'block';
+
+            } catch (e) {
+                document.getElementById('loading').innerHTML = `
+                    <h2 style="color: white;">❌ Error Loading Report</h2>
+                    <p style="color: white;">${e.message}</p>
+                    <a href="dashboard.html" class="back-button">Back to Dashboard</a>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

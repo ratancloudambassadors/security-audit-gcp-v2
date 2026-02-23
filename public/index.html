@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud AuditScope | Secure Your Multi-Cloud</title>
+    <meta name="description" content="Advanced multi-cloud security auditing tool for AWS, Azure, and Google Cloud Platform. Comprehensive vulnerability scanning and compliance checks.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- AOS Animation -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <!-- Ionicons -->
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+</head>
+<body>
+    <div class="background-globes">
+        <div class="globe globe-1"></div>
+        <div class="globe globe-2"></div>
+        <div class="globe globe-3"></div>
+    </div>
+
+    <nav class="navbar glass">
+        <div class="logo">
+            <div class="logo-shimmer-wrapper">
+                <img src="logo-ca.jpg" alt="Cloud AuditScope Logo" class="logo-img">
+            </div>
+
+
+        </div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#about-us">About Us</a>
+            <a href="#how-it-works">How it Works</a>
+            <a href="#pricing">Pricing</a>
+        </div>
+        <button class="btn-primary glow" id="launch-app">Launch Console</button>
+    </nav>
+
+    <main>
+        <section class="hero">
+            <div class="hero-content" data-aos="fade-right">
+                <div class="badge">
+                    <span class="dot"></span> Security Scanner v2.4 | Easy Cloud Audit
+                </div>
+                <h1>Find <span class="gradient-text">Vulnerabilities</span> and Get Recommendations.</h1>
+                <p>We scan your cloud to find hidden security risks and provide clear recommendations to fix them instantly.</p>
+                
+                <div class="hero-actions">
+                    <button class="btn-primary lg glow" id="start-audit-btn" onclick="window.location.href='/login.html'">
+                        <ion-icon name="shield-checkmark-outline"></ion-icon>
+                        Start Your Free Scan
+                    </button>
+                    <button class="btn-secondary lg">
+                        <ion-icon name="document-text-outline"></ion-icon>
+                        Technical Whitepaper
+                    </button>
+                </div>
+
+                <div class="stats-row">
+                    <div class="stat-item">
+                        <span class="number">200+</span>
+                        <span class="label">Security Controls</span>
+                    </div>
+
+                    <div class="stat-item">
+                        <span class="number">24/7</span>
+                        <span class="label">Priority Monitoring</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="hero-visual" data-aos="zoom-in">
+                <div class="card glass scan-card">
+                    <div class="card-header">
+                        <div class="dots">
+                            <span class="red"></span><span class="yellow"></span><span class="green"></span>
+                        </div>
+                        <span>enterprise-audit-core.bin</span>
+                    </div>
+                    <div class="code-block">
+                        <div class="line"><span class="prompt">$</span> <span class="cmd">cloud-audit</span> --target-project production-main</div>
+                        <div class="line"><span class="success">✓</span> Authentication Verified: Organization Admin</div>
+                        <div class="line"><span class="info">i</span> Crawling 42 Active Services...</div>
+                        <div class="line"><span class="info">i</span> Mapping VPC Network Topology...</div>
+                        <div class="line"><span class="warning">!</span> Critical: Open SSH Port 22 in 'web-tier-firewall'</div>
+                        <div class="line loading">Finalizing Compliance Report<span class="cursor">_</span></div>
+                    </div>
+                    <div class="scan-overlay">
+                        <div class="scan-line"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Trusted Services Section -->
+        <section class="trusted-services">
+            <div class="section-container">
+                <p class="section-subtitle" data-aos="fade-up">COMPREHENSIVE COVERAGE</p>
+                <h2 data-aos="fade-up" data-aos-delay="100">Auditing Your Core <span class="gradient-text">Cloud Infrastructure</span></h2>
+                <p class="section-description" data-aos="fade-up" data-aos-delay="200" style="text-align: center; max-width: 600px; margin: 10px auto; color: var(--text-secondary);">Complete visibility across your hybrid environment.</p>
+                <div class="services-grid" data-aos="fade-up" data-aos-delay="300">
+                    <div class="service-icon-box">
+                        <ion-icon name="cube-outline"></ion-icon>
+                        <span class="service-title">Computers</span>
+                        <span class="service-context">VMs & Servers</span>
+                    </div>
+                    <div class="service-icon-box">
+                        <ion-icon name="layers-outline"></ion-icon>
+                        <span class="service-title">Containers</span>
+                        <span class="service-context">Kubernetes (GKE/EKS)</span>
+                    </div>
+                    <div class="service-icon-box">
+                        <ion-icon name="cloud-outline"></ion-icon>
+                        <span class="service-title">Folders</span>
+                        <span class="service-context">Files & Storage</span>
+                    </div>
+                    <div class="service-icon-box">
+                        <ion-icon name="people-outline"></ion-icon>
+                        <span class="service-title">Users</span>
+                        <span class="service-context">Access & Login</span>
+                    </div>
+                    <div class="service-icon-box">
+                        <ion-icon name="git-branch-outline"></ion-icon>
+                        <span class="service-title">Databases</span>
+                        <span class="service-context">SQL & Data Stores</span>
+                    </div>
+                    <div class="service-icon-box">
+                        <ion-icon name="globe-outline"></ion-icon>
+                        <span class="service-title">Networks</span>
+                        <span class="service-context">Firewalls & VPCs</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features" id="features">
+            <div class="section-header" data-aos="fade-up">
+                <p class="section-subtitle">WHAT WE DO</p>
+                <h2>How We Find <span class="gradient-text">Vulnerabilities</span> for You</h2>
+            </div>
+            <div class="feature-grid">
+                <div class="feature-card glass" data-aos="fade-up">
+                    <div class="icon-box blue">
+                        <ion-icon name="finger-print-outline"></ion-icon>
+                    </div>
+                    <h3>Control Who Has Access</h3>
+                    <p>See exactly who can use your cloud accounts. Remove old users or extra permissions to keep your data safe and private.</p>
+                </div>
+                <div class="feature-card glass" data-aos="fade-up" data-aos-delay="100">
+                    <div class="icon-box purple">
+                        <ion-icon name="lock-closed-outline"></ion-icon>
+                    </div>
+                    <h3>Protect Your Files</h3>
+                    <p>We check all your storage folders. If any files are open for anyone to see, we help you lock them down quickly before hackers find them.</p>
+                </div>
+                <div class="feature-card glass" data-aos="fade-up" data-aos-delay="200">
+                    <div class="icon-box orange">
+                        <ion-icon name="git-network-outline"></ion-icon>
+                    </div>
+                    <h3>Secure Your Network</h3>
+                    <p>We scan your firewalls and network settings. We find any "open doors" that could let attackers into your servers and show you how to close them.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- About Us Section -->
+        <section class="about-us" id="about-us" style="padding: 120px 5%; background: var(--bg-color); border-top: 1px solid var(--glass-border);">
+            <div class="section-container" style="max-width: 1100px; margin: 0 auto; text-align: center;">
+                <p class="section-subtitle" data-aos="fade-up">WHO WE ARE</p>
+                <h2 style="margin-bottom: 50px;" data-aos="fade-up" data-aos-delay="100">Simple Security, <span class="gradient-text">Pure Peace of Mind.</span></h2>
+                
+                <div class="about-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px;">
+                    <div class="glass" data-aos="fade-right" data-aos-delay="200" style="padding: 40px; border-radius: 32px; text-align: left;">
+                        <div class="icon-box blue" style="width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--primary-light); color: var(--primary); margin-bottom: 20px;">
+                            <ion-icon name="layers-outline" style="font-size: 1.8rem;"></ion-icon>
+                        </div>
+                        <h3 style="font-size: 1.5rem; margin-bottom: 15px; color: var(--text-main);">Our Expert Platform</h3>
+                        <p style="font-size: 1.1rem; color: var(--text-secondary); line-height: 1.6;">
+                            Our platform makes cloud safety easy for everyone. We know security can be complex, so we built <strong>AuditScope</strong> to automate your protection.
+                        </p>
+                    </div>
+
+                    <div class="glass" data-aos="fade-left" data-aos-delay="300" style="padding: 40px; border-radius: 32px; text-align: left;">
+                        <div class="icon-box purple" style="width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.1); color: #a855f7; margin-bottom: 20px;">
+                            <ion-icon name="rocket-outline" style="font-size: 1.8rem;"></ion-icon>
+                        </div>
+                        <h3 style="font-size: 1.5rem; margin-bottom: 15px; color: var(--text-main);">Our Simple Mission</h3>
+                        <p style="font-size: 1.1rem; color: var(--text-secondary); line-height: 1.6;">
+                            Our goal is to protect your data with just one click. We handle the hard work so you can focus on building your business without any worry.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- How It Works -->
+        <section class="process-section" id="how-it-works">
+            <div class="section-header" data-aos="fade-up">
+                <p class="section-subtitle">THE PROCESS</p>
+                <h2>Streamlined <span class="gradient-text">Audit Workflow</span></h2>
+            </div>
+            <div class="process-steps" data-aos="fade-up" data-aos-delay="200">
+                <div class="step">
+                    <div class="step-number">01</div>
+                    <h3>Connect Your Cloud</h3>
+                    <p>Securely link your AWS, Azure, or Google Cloud accounts in just a few clicks using simple keys.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">02</div>
+                    <h3>Find Vulnerabilities</h3>
+                    <p>Our tool automatically scans over 200 security points across your infrastructure to find hidden vulnerabilities.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">03</div>
+                    <h3>Get Recommendations</h3>
+                    <p>See exactly what is wrong and get a list of easy, one-click steps to make your cloud safe again.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA Section -->
+        <section class="cta-section" data-aos="zoom-in">
+            <div class="cta-content glass">
+                <h2>Ready to Make Your Cloud Safe?</h2>
+                <p>Start your free scan today and protect your business from attacks and data leaks.</p>
+                <button class="btn-primary lg glow" onclick="window.location.href='/login.html'">Get Started for Free</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="main-footer">
+        <div class="footer-grid">
+            <div class="footer-about">
+                <div class="logo">
+                    <div class="logo-shimmer-wrapper">
+                    <img src="logo-ca.jpg" alt="Cloud AuditScope Logo" class="logo-img">
+                </div>
+
+                </div>
+                <p>The leading enterprise auditing tool for multi-cloud security and compliance.</p>
+            </div>
+            <div class="footer-links">
+                <h4>Product</h4>
+                <a href="#">Features</a>
+                <a href="#">Integrations</a>
+                <a href="#">Enterprise</a>
+                <a href="#">Solutions</a>
+            </div>
+            <div class="footer-links">
+                <h4>Security</h4>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Service</a>
+                <a href="#">Security Overview</a>
+                <a href="#">Trust Center</a>
+            </div>
+            <div class="footer-links">
+                <h4>Resources</h4>
+                <a href="#">Documentation</a>
+                <a href="#">API Reference</a>
+                <a href="#">Guide</a>
+                <a href="#">Support</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Cloud AuditScope. All rights reserved.</p>
+            <div class="social-links">
+                <ion-icon name="logo-linkedin"></ion-icon>
+                <ion-icon name="logo-twitter"></ion-icon>
+                <ion-icon name="logo-github"></ion-icon>
+            </div>
+        </div>
+    </footer>
+    
+    <script src="script.js"></script>
+    <!-- AOS Animation Initialization -->
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        AOS.init({
+            duration: 1000,
+            once: true,
+            offset: 100
+        });
+    </script>
+</body>
+</html>

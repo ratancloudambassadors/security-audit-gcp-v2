@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+server.out
+server.pid
+uploads/
+data/*.json
+!data/README.md
+keys_test.json
+.DS_Store
