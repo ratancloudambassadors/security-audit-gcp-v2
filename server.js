@@ -637,27 +637,61 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// API: Register (Simple for demo)
+// API: Register (Secure & Company Aware)
 app.post('/api/auth/register', async (req, res) => {
-    // ... existing register logic ...
-    const { username, password, displayName, company } = req.body;
+    let { username, password, displayName, company } = req.body;
+    
+    // Default company if not provided
+    if (!company || company.trim() === '') company = 'Individual';
+
     try {
-        if (dbConnected) {
-            const newUser = new User({ 
-                username, 
-                password, 
-                displayName, 
-                company: company || 'Internal',
-                email: username.includes('@') ? username : undefined
-            });
-            await newUser.save();
-            console.log("Verified: User saved to MongoDB User collection.");
-            await backupData(); // Backup after registration
-        } else {
-             throw new Error("Database not connected. Registration unavailable.");
+        if (!dbConnected) {
+            throw new Error("Database not connected. Registration unavailable.");
         }
-        res.json({ success: true });
+
+        // 1. Check if username or email already exists
+        const existingUser = await User.findOne({ 
+            $or: [{ username }, { email: username }] 
+        });
+        if (existingUser) {
+            return res.status(400).json({ success: false, message: "User with this identity/email already exists." });
+        }
+
+        // 2. Check if Company Name is already registered (Strictly for non-Internal/non-Individual companies)
+        const normalizedCompany = company.trim();
+        const restrictedNames = ['Internal', 'Individual', 'None', 'N/A'];
+        
+        if (!restrictedNames.includes(normalizedCompany)) {
+            // Case-insensitive search for existing company
+            const existingCompany = await User.findOne({ 
+                company: { $regex: new RegExp(`^${normalizedCompany.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } 
+            });
+            
+            if (existingCompany) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Organization '${normalizedCompany}' is already registered. Please use a unique name or contact your admin.` 
+                });
+            }
+        }
+
+        // 3. Create New User
+        const newUser = new User({ 
+            username, 
+            password, 
+            displayName, 
+            company: normalizedCompany,
+            email: username.includes('@') ? username : undefined
+        });
+
+        await newUser.save();
+        console.log(`[AUTH] Registered new user: ${username} for company: ${normalizedCompany}`);
+        
+        await backupData();
+        res.json({ success: true, message: "Registration successful!" });
+
     } catch (e) {
+        console.error("[AUTH] Registration error:", e.message);
         res.status(400).json({ success: false, message: e.message });
     }
 });
