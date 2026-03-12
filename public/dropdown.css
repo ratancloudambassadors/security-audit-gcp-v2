@@ -1,10 +1,11 @@
-/* Services Dropdown */
 .services-dropdown {
     position: absolute;
-    background: white;
+    background: var(--card-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--glass-border);
     border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    box-shadow: var(--shadow-heavy);
     width: 220px;
     z-index: 2000;
     padding: 8px 0;
@@ -32,7 +33,7 @@
 }
 
 .dropdown-item:hover {
-    background: #f3f2f1;
+    background: rgba(16, 185, 129, 0.1);
     color: var(--primary);
 }
 

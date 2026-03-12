@@ -60,6 +60,40 @@ window.showToast = function(message, type = 'success', title = 'Notification', d
 
     // Check if user is logged in
     const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+    const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:8080/api' : '/api';
+
+// Global Custom Confirm Utility
+window.showConfirm = function(title, message, isDanger = false) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        const titleEl = document.getElementById('confirm-title');
+        const messageEl = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+
+        titleEl.innerHTML = `<ion-icon name="${isDanger ? 'alert-circle' : 'help-circle'}-outline" style="color: ${isDanger ? '#ef4444' : 'var(--primary)'}; font-size: 1.5rem;"></ion-icon><span>${title}</span>`;
+        messageEl.textContent = message;
+        
+        okBtn.className = `confirm-btn confirm ${isDanger ? 'danger' : ''}`;
+        
+        const cleanup = (result) => {
+            modal.classList.add('hidden');
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            resolve(result);
+        };
+
+        const onOk = () => cleanup(true);
+        const onCancel = () => cleanup(false);
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+
+        modal.classList.remove('hidden');
+    });
+};
+
+let currentSchedules = [];
     const isLoginPage = window.location.pathname.endsWith('login.html');
 
     if (user) {
@@ -127,8 +161,6 @@ window.showToast = function(message, type = 'success', title = 'Notification', d
                 const data = await response.json();
                 if (data.success) {
                     localStorage.setItem('gcp_audit_user', JSON.stringify(data.user));
-                    localStorage.setItem('gcp_audit_token', data.token);
-                    window.location.href = 'dashboard.html';
                     localStorage.setItem('gcp_audit_token', data.token);
                     window.location.href = 'dashboard.html';
                 } else {
@@ -310,8 +342,6 @@ async function loginWithBackend(token) {
             localStorage.setItem('gcp_audit_user', JSON.stringify(data.user));
             localStorage.setItem('gcp_audit_token', data.token);
             window.location.href = 'dashboard.html';
-            localStorage.setItem('gcp_audit_token', data.token);
-            window.location.href = 'dashboard.html';
         } else {
             showToast('Login failed: ' + data.message, 'error', 'Access Denied');
         }
@@ -337,11 +367,12 @@ function updateUIForLoggedInUser(user) {
             <span>${user.name.split(' ')[0]}</span>
         `;
         
-        profileDiv.addEventListener('click', () => {
-            if(confirm('Logout?')) {
+        profileDiv.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if(await showConfirm('Log Out', 'Are you sure you want to log out of your security session?', true)) {
                 localStorage.removeItem('gcp_audit_user');
                 localStorage.removeItem('gcp_audit_token');
-                window.location.reload();
+                window.location.href = 'login.html';
             }
         });
 
@@ -361,10 +392,11 @@ let autoConfig = {
     time: '09:00',
     days: [1], // Monday default
     dom: 1,
-    notify: true
+    notify: true,
+    emails: [] // Store added email tags
 };
 
-function selectAutoPlatform(platform, el) {
+function selectAutoPlatform(platform, el, triggerLoad = true) {
     autoConfig.platform = platform;
     document.getElementById('auto-platform').value = platform;
     
@@ -376,12 +408,131 @@ function selectAutoPlatform(platform, el) {
     });
     
     el.classList.add('selected');
-    el.style.borderColor = 'var(--primary)';
-    el.style.backgroundColor = 'rgba(26, 115, 232, 0.1)';
+    el.style.borderColor = 'var(--cc-primary)';
+    el.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
+
+    // Toggle credential sections based on platform
+    const gcpKeyGroup = document.getElementById('auto-key-group');
+    const awsCredsGroup = document.getElementById('auto-aws-creds-group');
+    if (gcpKeyGroup) gcpKeyGroup.style.display = platform === 'GCP' ? 'block' : 'none';
+    if (awsCredsGroup) awsCredsGroup.style.display = platform === 'AWS' ? 'block' : 'none';
+
+    // For AWS: auto-load saved credentials from profile
+    if (platform === 'AWS') loadSavedAwsCredentials();
     
     // Load existing schedule for this platform
-    loadSchedule(platform);
+    if (triggerLoad) {
+        loadSchedule(platform);
+    } else {
+        autoConfig.emails = []; // Clear current emails for new schedule
+        renderEmailTags();
+        loadAvailableKeys(platform);
+    }
 }
+
+// Fetch saved AWS credentials from server (masked) and update the UI
+async function loadSavedAwsCredentials() {
+    const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+    if (!user) return;
+    const userId = user.email || user.username;
+
+    const savedCard = document.getElementById('aws-saved-card');
+    const newForm   = document.getElementById('aws-new-creds-form');
+    const changeBtn = document.getElementById('aws-cred-change-btn');
+
+    try {
+        const res  = await fetch(`/api/user/aws-credentials?userId=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+
+        if (data.success && data.hasSaved) {
+            // Show saved card, hide input form
+            document.getElementById('aws-saved-masked').innerText = `Key ID: ${data.maskedKey}  |  Region: ${data.region}`;
+            savedCard.style.display = 'block';
+            newForm.style.display   = 'none';
+            changeBtn.style.display = 'flex';
+            // Clear input fields since we'll use saved creds
+            document.getElementById('auto-aws-key-id').value    = '';
+            document.getElementById('auto-aws-secret-key').value = '';
+        } else {
+            // No saved creds — show the entry form
+            savedCard.style.display = 'none';
+            newForm.style.display   = 'flex';
+            changeBtn.style.display = 'none';
+        }
+    } catch (e) {
+        // On error, default to showing the form
+        if (savedCard) savedCard.style.display = 'none';
+        if (newForm)   newForm.style.display   = 'flex';
+    }
+}
+
+// Toggle between saved-card view and new-entry form
+function toggleAwsCredMode() {
+    const savedCard = document.getElementById('aws-saved-card');
+    const newForm   = document.getElementById('aws-new-creds-form');
+    const changeBtn = document.getElementById('aws-cred-change-btn');
+    if (savedCard.style.display !== 'none') {
+        // Switch to entry form
+        savedCard.style.display = 'none';
+        newForm.style.display   = 'flex';
+        changeBtn.innerText     = '← Use Saved';
+    } else {
+        // Switch back to saved card
+        loadSavedAwsCredentials();
+    }
+}
+
+// --- Multi-Email Tag Functions ---
+
+function addAutoEmail() {
+    const input = document.getElementById('auto-email-input');
+    const email = input.value.trim();
+    
+    if (!email) return;
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return showToast('Please enter a valid email address', 'error', 'Invalid Email');
+    }
+    
+    if (autoConfig.emails.includes(email)) {
+        return showToast('This email is already added', 'warning', 'Duplicate');
+    }
+    
+    autoConfig.emails.push(email);
+    input.value = '';
+    renderEmailTags();
+}
+
+function removeAutoEmail(index) {
+    autoConfig.emails.splice(index, 1);
+    renderEmailTags();
+}
+
+function renderEmailTags() {
+    const container = document.getElementById('auto-email-tags');
+    if (!container) return;
+    
+    if (autoConfig.emails.length === 0) {
+        container.innerHTML = `
+            <div id="auto-email-empty" style="color: var(--text-secondary); font-size: 0.8rem; font-style: italic; width: 100%; text-align: center; opacity: 0.7;">
+                No emails added yet.
+            </div>`;
+        return;
+    }
+    
+    container.innerHTML = autoConfig.emails.map((email, index) => `
+        <div class="email-tag" style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 5px 12px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; animation: fadeIn 0.3s ease;">
+            <ion-icon name="mail-outline" style="font-size: 0.9rem;"></ion-icon>
+            <span>${email}</span>
+            <button onclick="removeAutoEmail(${index})" style="background: none; border: none; color: #10b981; cursor: pointer; display: flex; align-items: center; padding: 2px; border-radius: 50%; hover: background: rgba(16, 185, 129, 0.2);">
+                <ion-icon name="close-circle" style="font-size: 1.1rem;"></ion-icon>
+            </button>
+        </div>
+    `).join('');
+}
+
 
 async function loadAvailableKeys(platform) {
     const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
@@ -463,19 +614,23 @@ function toggleDayInputs() {
     if (freq === 'daily') {
         dayRow.style.display = 'none';
         document.getElementById('date-group').style.display = 'none';
+        document.getElementById('duration-group').style.display = 'none';
     } else if (freq === 'weekly') {
         dayRow.style.display = 'flex';
         dowGroup.style.display = 'block';
         domGroup.style.display = 'none';
         document.getElementById('date-group').style.display = 'none';
+        document.getElementById('duration-group').style.display = 'none';
     } else if (freq === 'monthly') {
         dayRow.style.display = 'flex';
         dowGroup.style.display = 'none';
-        domGroup.style.display = 'block';
+        // domGroup removed
         document.getElementById('date-group').style.display = 'none';
+        document.getElementById('duration-group').style.display = 'flex';
     } else if (freq === 'once') {
         dayRow.style.display = 'none';
         document.getElementById('date-group').style.display = 'block';
+        document.getElementById('duration-group').style.display = 'none';
     }
     
     calculateNextScan();
@@ -502,6 +657,7 @@ async function saveSchedule() {
     if (!user) return showToast('Please login first', 'error');
 
     const config = {
+        id: document.getElementById('current-schedule-id').value || null,
         userId: user.email || user.username,
         platform: document.getElementById('auto-platform').value,
         frequency: document.getElementById('auto-frequency').value,
@@ -517,14 +673,54 @@ async function saveSchedule() {
         })(),
         dayOfWeek: document.getElementById('auto-dow').value,
 
-        dayOfMonth: document.getElementById('auto-dom').value,
+        dayOfMonth: 1, // Defaulting to 1 after UI removal
         date: document.getElementById('auto-date').value,
+        startDate: document.getElementById('auto-start-date').value,
+        endDate: document.getElementById('auto-end-date').value,
         notifyEmail: document.getElementById('auto-notify').checked,
-        email: document.getElementById('auto-email').value,
+        email: autoConfig.emails.join(', '),
         active: document.getElementById('auto-active').checked,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         selectedKeyId: document.getElementById('auto-key-select').value || null
     };
+
+    // Validation for email if notifications are enabled
+    if (config.notifyEmail && !config.email) {
+        return showToast('At least one notification email is required', 'error', 'Missing Email');
+    }
+
+    // Handle AWS credentials — two modes: use saved profile creds OR enter new ones
+    const platform = config.platform;
+    if (platform === 'AWS') {
+        const savedCard = document.getElementById('aws-saved-card');
+        const usingSaved = savedCard && savedCard.style.display !== 'none';
+
+        if (usingSaved) {
+            // Saved credentials in profile will be used by scheduler automatically
+            // No need to send credentials in this request
+            config.credentials = null;
+        } else {
+            // User entered new credentials — validate
+            const awsKeyId = document.getElementById('auto-aws-key-id').value.trim();
+            const awsSecret = document.getElementById('auto-aws-secret-key').value.trim();
+            if (!awsKeyId || !awsSecret) return showToast('Access Key ID aur Secret Access Key dono chahiye', 'error', 'Missing Credentials');
+            config.credentials = { awsAccessKeyId: awsKeyId, awsSecretAccessKey: awsSecret };
+
+            // Save to DB only if "Save for future scans" is checked
+            const saveToProfile = document.getElementById('aws-save-to-profile');
+            if (saveToProfile && saveToProfile.checked) {
+                const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+                const userId = user?.email || user?.username;
+                fetch('/api/user/aws-credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, accessKey: awsKeyId, secretKey: awsSecret, region: 'us-east-1' })
+                }).then(r => r.json()).then(d => {
+                    if (d.success) showToast('AWS credentials saved for future scans', 'success', 'Saved');
+                }).catch(() => {});
+            }
+        }
+    }
 
     try {
         const response = await fetch('/api/user/schedule', {
@@ -535,9 +731,18 @@ async function saveSchedule() {
         const data = await response.json();
         
         if (data.success) {
+            document.getElementById('current-schedule-id').value = data.schedule._id;
             showToast('Schedule saved successfully', 'success');
             calculateNextScan();
+            loadAllSchedules();
             updateHistoryLog('Schedule updated', 'success');
+            
+            // Hide form and show empty state after success
+            setTimeout(() => {
+                document.getElementById('automation-form-container').style.display = 'none';
+                document.getElementById('automation-empty-state').style.display = 'block';
+                window.showScheduleSuccessModal();
+            }, 1500);
         } else {
             showToast('Failed to save: ' + data.message, 'error');
         }
@@ -547,23 +752,89 @@ async function saveSchedule() {
     }
 }
 
-async function loadSchedule(platform) {
+async function loadSchedule(idOrPlatform) {
+   if (!idOrPlatform) return;
    const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
-   if (!user) return;
+   if (!user) return showToast('Please login first', 'error', 'Session Expired');
+
+   console.log('Loading schedule for:', idOrPlatform);
 
    const userId = user.email || user.username;
    
-   // First load available keys
-   await loadAvailableKeys(platform);
+   // We'll load keys AFTER we know the actual platform from the schedule
+   // unless it's a direct platform load (New Mode)
+   if (idOrPlatform.length <= 20) {
+       await loadAvailableKeys(idOrPlatform);
+   }
 
    try {
-       const response = await fetch(`/api/user/schedule?userId=${encodeURIComponent(userId)}&platform=${platform}`);
+       let url = `/api/user/schedule?userId=${encodeURIComponent(userId)}`;
+       if (idOrPlatform.length > 20) {
+           url += `&id=${idOrPlatform}`;
+       } else {
+           url += `&platform=${idOrPlatform}`;
+       }
+
+       const response = await fetch(url);
+       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
        const data = await response.json();
        
        if (data.success && data.schedule) {
            const s = data.schedule;
-           document.getElementById('auto-frequency').value = s.frequency || 'once';
+           document.getElementById('current-schedule-id').value = s._id;
+            
+           // Update header and button
+           const editorTitle = document.querySelector('#automation-content .panel-header h3');
+           if (editorTitle) editorTitle.innerText = `Edit: ${s.platform} Schedule`;
            
+           const saveBtn = document.getElementById('save-schedule-btn');
+           if (saveBtn) saveBtn.innerText = 'Update Schedule';
+                      // Show form, hide empty state
+            document.getElementById('automation-form-container').style.display = 'block';
+            document.getElementById('automation-empty-state').style.display = 'none';
+
+            // Scroll to form now that it's visible
+            document.getElementById('automation-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // Load keys for the correct platform
+            await loadAvailableKeys(s.platform);
+           
+           // Set Platform UI
+           const options = document.querySelectorAll('#automation-form .cloud-option');
+           options.forEach(opt => {
+               if (opt.innerText.trim().toUpperCase() === s.platform.toUpperCase()) {
+                   selectAutoPlatform(s.platform, opt, false);
+               }
+           });
+
+            document.getElementById('auto-frequency').value = s.frequency || 'once';
+            document.getElementById('auto-notify').checked = s.notifyEmail !== false;
+            
+            // Populate Email Tags
+            const emailStr = s.email || user.email || '';
+            autoConfig.emails = emailStr.split(',').map(e => e.trim()).filter(e => e !== '');
+            renderEmailTags();
+            
+            document.getElementById('auto-active').checked = s.active !== false;
+           if (s.date) document.getElementById('auto-date').value = s.date;
+           
+           if (s.selectedKeyId) {
+               const keySelect = document.getElementById('auto-key-select');
+               if (keySelect) keySelect.value = s.selectedKeyId;
+           }
+
+           // Populate AWS credentials if this is an AWS schedule
+           if (s.platform === 'AWS' && s.credentials) {
+               const keyIdEl = document.getElementById('auto-aws-key-id');
+               const secretEl = document.getElementById('auto-aws-secret-key');
+               if (keyIdEl && s.credentials.awsAccessKeyId) keyIdEl.value = s.credentials.awsAccessKeyId;
+               if (secretEl && s.credentials.awsSecretAccessKey) secretEl.value = s.credentials.awsSecretAccessKey;
+           }
+
+           if (s.startDate) document.getElementById('auto-start-date').value = s.startDate.split('T')[0];
+           if (s.endDate) document.getElementById('auto-end-date').value = s.endDate.split('T')[0];
+           window.calculateDuration();
+
            if (s.time) {
                const [h, m] = s.time.split(':');
                let hour = parseInt(h, 10);
@@ -576,44 +847,60 @@ async function loadSchedule(platform) {
                
                document.getElementById('auto-time-hour').value = hour.toString().padStart(2, '0');
                document.getElementById('auto-time-minute').value = m;
+               const minSelect = document.getElementById('auto-time-minute');
+               if (minSelect.value !== m) {
+                   const opt = document.createElement('option');
+                   opt.value = m;
+                   opt.innerText = m;
+                   minSelect.appendChild(opt);
+                   Array.from(minSelect.options)
+                       .sort((a, b) => parseInt(a.value) - parseInt(b.value))
+                       .forEach(option => minSelect.add(option));
+                   minSelect.value = m;
+               }
                document.getElementById('auto-time-ampm').value = ampm;
            }
+           
+           if (s.dayOfWeek !== undefined && s.dayOfWeek !== null) {
+               let days;
+               if (Array.isArray(s.dayOfWeek)) {
+                   days = s.dayOfWeek;
+               } else if (typeof s.dayOfWeek === 'string') {
+                   days = s.dayOfWeek.split(',').map(Number);
+               } else {
+                   // It's a single Number
+                   days = [Number(s.dayOfWeek)];
+               }
 
-           if (s.dayOfWeek) {
-               const days = s.dayOfWeek.split(',').map(Number);
                autoConfig.days = days;
                document.querySelectorAll('.day-selector .day-btn').forEach((btn, idx) => {
                    if (days.includes(idx)) btn.classList.add('active');
                    else btn.classList.remove('active');
                });
            }
-
-           if (s.dayOfMonth) document.getElementById('auto-dom').value = s.dayOfMonth;
-           if (s.date) document.getElementById('auto-date').value = s.date.split('T')[0];
            
-           document.getElementById('auto-notify').checked = s.notifyEmail !== false;
-           if (s.email) document.getElementById('auto-email').value = s.email;
-           document.getElementById('auto-active').checked = s.active !== false;
-           
-           if (s.selectedKeyId) {
-               document.getElementById('auto-key-select').value = s.selectedKeyId;
-           }
-
            toggleDayInputs();
            calculateNextScan();
        } else {
-            // Reset to defaults if no schedule found
-            document.getElementById('auto-frequency').value = 'once';
-            document.getElementById('auto-date').value = '';
-            document.getElementById('auto-time-hour').value = '09';
-            document.getElementById('auto-time-minute').value = '00';
-            document.getElementById('auto-time-ampm').value = 'AM';
-            document.getElementById('auto-active').checked = true;
-            toggleDayInputs();
-            calculateNextScan();
+           // No schedule found for this platform — this is normal (first time setup)
+           // Silently switch to "new schedule" creation mode
+           document.getElementById('current-schedule-id').value = '';
+
+           const editorTitle = document.querySelector('#automation-content .panel-header h3');
+           if (editorTitle) editorTitle.innerText = `New ${idOrPlatform} Schedule`;
+
+           const saveBtn = document.getElementById('save-schedule-btn');
+           if (saveBtn) saveBtn.innerText = 'Save Schedule';
+
+           // Show form, hide empty state
+           document.getElementById('automation-form-container').style.display = 'block';
+           document.getElementById('automation-empty-state').style.display = 'none';
+
+           showToast(`No existing schedule for ${idOrPlatform}. Configure a new one below.`, 'info', 'New Schedule');
        }
    } catch(e) {
        console.error('Error loading schedule:', e);
+       showToast('Critical error loading schedule: ' + e.message, 'error', 'System Error');
    }
 }
 
@@ -648,6 +935,68 @@ async function runManualTest() {
     }
 }
 
+async function deleteSchedule(platform) {
+    const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+    if (!user) return showToast('Please login first', 'error');
+
+    const userId = user.email || user.username;
+
+    if (!(await showConfirm('Delete Schedule', `Are you sure you want to delete the scheduled scan for ${platform.toUpperCase()}?`, true))) return;
+
+    try {
+        const response = await fetch(`/api/user/schedule?userId=${encodeURIComponent(userId)}&platform=${platform}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('Schedule deleted successfully', 'success');
+            // Reset UI
+            loadSchedule(platform); 
+            updateHistoryLog('Schedule deleted', 'warning');
+        } else {
+            showToast('Failed to delete: ' + data.message, 'error');
+        }
+    } catch (e) {
+        showToast('Error deleting schedule', 'error');
+        console.error(e);
+    }
+}
+
+window.calculateDuration = function() {
+    const startStr = document.getElementById('auto-start-date').value;
+    const endStr = document.getElementById('auto-end-date').value;
+    const display = document.getElementById('auto-duration-display');
+    
+    if (!display) return;
+
+    if (!startStr || !endStr) {
+        display.innerText = "0 Months";
+        display.style.color = "var(--text-secondary)";
+        display.style.background = "rgba(255, 255, 255, 0.05)";
+        return;
+    }
+    
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    
+    if (end < start) {
+        display.innerText = "Invalid Range";
+        display.style.color = "#ef4444";
+        display.style.background = "rgba(239, 68, 68, 0.1)";
+        return;
+    }
+    
+    let months = (end.getFullYear() - start.getFullYear()) * 12;
+    months -= start.getMonth();
+    months += end.getMonth();
+    
+    const result = Math.max(0, months);
+    display.innerText = `${result} ${result === 1 ? 'Month' : 'Months'}`;
+    display.style.color = "var(--cc-primary)";
+    display.style.background = "rgba(16, 185, 129, 0.1)";
+};
+
 function calculateNextScan() {
     const active = document.getElementById('auto-active').checked;
     const nextScanEl = document.getElementById('next-scan-time');
@@ -657,7 +1006,7 @@ function calculateNextScan() {
     if (!active) {
         if (nextScanEl) nextScanEl.innerText = 'Disabled';
         if (statusTextEl) statusTextEl.innerText = 'OFFLINE';
-        if (statusDotEl) statusDotEl.style.background = '#666';
+        if (statusDotEl) statusDotEl.style.background = 'var(--cc-text-muted)';
         return;
     }
 
@@ -698,7 +1047,7 @@ function calculateNextScan() {
                 next.setDate(next.getDate() + 1);
             }
         } else if (freq === 'monthly') {
-            const selectedDom = parseInt(document.getElementById('auto-dom').value, 10);
+            const selectedDom = 1; // Defaulting to 1 after UI removal
             next.setDate(selectedDom);
             if (next <= now) {
                 next.setMonth(next.getMonth() + 1);
@@ -719,7 +1068,7 @@ function calculateNextScan() {
     }
     
     if (statusTextEl) statusTextEl.innerText = 'ONLINE';
-    if (statusDotEl) statusDotEl.style.background = '#00d084';
+    if (statusDotEl) statusDotEl.style.background = 'var(--cc-primary)';
 }
 
 function updateHistoryLog(msg, type) {
@@ -727,7 +1076,7 @@ function updateHistoryLog(msg, type) {
     const item = document.createElement('div');
     item.style.display = 'flex';
     item.style.justifyContent = 'space-between';
-    item.style.color = type === 'success' ? 'var(--success)' : 'var(--text-secondary)';
+    item.style.color = type === 'success' ? 'var(--cc-success)' : 'var(--cc-text-muted)';
     item.innerHTML = `<span>${msg}</span><span>${new Date().toLocaleTimeString()}</span>`;
     
     if (list.children[0]?.innerText.includes('No recent')) list.innerHTML = '';
@@ -739,7 +1088,7 @@ function populateMinutes() {
     const minSelect = document.getElementById('auto-time-minute');
     if (!minSelect) return;
     minSelect.innerHTML = '';
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 60; i += 5) {
         const val = i.toString().padStart(2, '0');
         const opt = document.createElement('option');
         opt.value = val;
@@ -751,6 +1100,8 @@ function populateMinutes() {
 
 setTimeout(() => {
     populateMinutes();
+    loadAllSchedules();
+    toggleDayInputs();
     // Set default email if logged in
     const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
     if (user && user.email) {
@@ -758,3 +1109,171 @@ setTimeout(() => {
         if (emailInput && !emailInput.value) emailInput.value = user.email;
     }
 }, 1000);
+
+window.resetAutomationForm = function() {
+    // Reset header and button
+    const editorTitle = document.querySelector('#automation-content .panel-header h3');
+    if (editorTitle) editorTitle.innerText = 'New Schedule Configuration';
+
+    const saveBtn = document.getElementById('save-schedule-btn');
+    if (saveBtn) saveBtn.innerText = 'Save Schedule';
+
+    document.getElementById('current-schedule-id').value = '';
+    
+    // Show form, hide empty state
+    document.getElementById('automation-form-container').style.display = 'block';
+    document.getElementById('automation-empty-state').style.display = 'none';
+    
+    // Force reset platform UI to GCP
+    const gcpOpt = Array.from(document.querySelectorAll('#automation-form .cloud-option'))
+        .find(opt => opt.innerText.trim() === 'GCP');
+    if (gcpOpt) selectAutoPlatform('GCP', gcpOpt, false); 
+    
+    // Reset inputs
+    document.getElementById('auto-frequency').value = 'once';
+    document.getElementById('auto-date').value = '';
+    document.getElementById('auto-notify').checked = true;
+    document.getElementById('auto-active').checked = true;
+    document.getElementById('delete-schedule-btn').style.display = 'none';
+    
+    // Reset Time
+    document.getElementById('auto-time-hour').value = '09';
+    const minSelect = document.getElementById('auto-time-minute');
+    if (minSelect && minSelect.options.length > 0) minSelect.selectedIndex = 0;
+    document.getElementById('auto-time-ampm').value = 'AM';
+
+    // Reset Days
+    autoConfig.days = [1];
+    document.querySelectorAll('.day-selector .day-btn').forEach((btn, idx) => {
+        if (idx === 1) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+
+    // Reset Keys
+    const keySelect = document.getElementById('auto-key-select');
+    if (keySelect) keySelect.selectedIndex = 0;
+
+    // Reset Email (to logged in user)
+    const user = JSON.parse(localStorage.getItem('gcp_audit_user') || '{}');
+    if (user.email) document.getElementById('auto-email').value = user.email;
+    else document.getElementById('auto-email').value = '';
+
+    // Reset Duration
+    document.getElementById('auto-start-date').value = '';
+    document.getElementById('auto-end-date').value = '';
+    window.calculateDuration();
+    
+    toggleDayInputs();
+    calculateNextScan();
+    
+    // Smooth scroll to form
+    const container = document.getElementById('automation-form-container');
+    container.parentElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showToast('Ready for new automation', 'info', 'Notification');
+};
+
+async function loadAllSchedules() {
+    const user = JSON.parse(localStorage.getItem('gcp_audit_user'));
+    if (!user) return;
+
+    const list = document.getElementById('active-schedules-list');
+    const countEl = document.getElementById('active-schedules-count');
+    if (!list) return;
+
+    try {
+        const userId = user.email || user.username;
+        const response = await fetch(`/api/user/schedules?userId=${encodeURIComponent(userId)}`);
+        const data = await response.json();
+
+        if (data.success && data.schedules && data.schedules.length > 0) {
+            countEl.innerText = data.schedules.length;
+            list.innerHTML = '';
+            data.schedules.forEach(s => {
+                const item = document.createElement('div');
+                item.className = 'glass';
+                item.style.padding = '12px';
+                item.style.borderRadius = '12px';
+                item.style.border = '1px solid var(--border-color)';
+                item.style.background = s.active ? 'rgba(26, 115, 232, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+                
+                const timeStr = s.time || 'N/A';
+                const freqStr = s.frequency ? s.frequency.charAt(0).toUpperCase() + s.frequency.slice(1) : 'Once';
+                const lastScanStr = s.lastScan ? new Date(s.lastScan).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Never';
+                
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <span class="badge ${s.platform === 'AWS' ? 'badge-warning' : 'badge-primary'}" style="font-size: 0.65rem;">${s.platform}</span>
+                                <strong style="font-size: 0.85rem;">${freqStr} Audit</strong>
+                            </div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 2px;">
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <ion-icon name="time-outline"></ion-icon> ${timeStr}
+                                    ${s.date ? ` • <ion-icon name="calendar-outline"></ion-icon> ${s.date}` : ''}
+                                </div>
+                                <div style="font-size: 0.7rem; opacity: 0.8;">
+                                    Last run: ${lastScanStr}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button onclick="console.log('Edit clicked for ID:', '${s._id}'); editScheduleFromList('${s._id}')" style="background: rgba(59, 130, 246, 0.1); color: var(--cc-primary); border: none; padding: 6px; border-radius: 6px; cursor: pointer; display: flex; transition: all 0.2s; position: relative; z-index: 10;" title="Edit">
+                                <ion-icon name="create-outline"></ion-icon>
+                            </button>
+                            <button onclick="deleteScheduleFromList('${s._id}')" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: none; padding: 6px; border-radius: 6px; cursor: pointer; display: flex; transition: all 0.2s;" title="Delete">
+                                <ion-icon name="trash-outline"></ion-icon>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        } else {
+            countEl.innerText = '0';
+            list.innerHTML = `
+                <div style="text-align: center; padding: 20px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px dashed var(--border-color);">
+                    <ion-icon name="calendar-outline" style="font-size: 1.5rem; opacity: 0.5;"></ion-icon>
+                    <div style="font-size: 0.8rem; margin-top: 5px;">No active schedules</div>
+                </div>
+            `;
+        }
+    } catch (e) {
+        console.error('Error loading all schedules:', e);
+    }
+}
+
+window.editScheduleFromList = function(id) {
+    loadSchedule(id);
+};
+
+window.deleteScheduleFromList = async function deleteScheduleFromList(id) {
+    if (!(await showConfirm('Remove Scan', `Are you sure you want to delete this scheduled scan from your dashboard?`, true))) return;
+
+    try {
+        const response = await fetch(`/api/user/schedule?id=${id}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('Schedule deleted', 'success');
+            loadAllSchedules();
+            if (document.getElementById('current-schedule-id').value === id) {
+                resetAutomationForm();
+            }
+        } else {
+            showToast('Delete failed: ' + data.message, 'error');
+        }
+    } catch (e) {
+        console.error('Error deleting schedule:', e);
+    }
+};
+
+window.showScheduleSuccessModal = function() {
+    document.getElementById('schedule-success-modal').style.display = 'flex';
+};
+
+window.closeScheduleSuccessModal = function() {
+    document.getElementById('schedule-success-modal').style.display = 'none';
+};
+

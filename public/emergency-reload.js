@@ -56,14 +56,15 @@
             position: fixed;
             top: 70px;
             right: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, var(--cc-primary) 0%, #059669 100%);
+            color: #05070a;
             padding: 12px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px var(--cc-primary-glow);
             z-index: 1000;
             font-size: 0.85rem;
-            font-weight: 600;
+            font-weight: 800;
+            border: none;
         `;
         indicator.innerHTML = `
             📊 Viewing Previous Scan<br>

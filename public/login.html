@@ -66,12 +66,12 @@
                             <input type="password" id="password" placeholder="••••••••" required>
                         </div>
                     </div>
-                    <button type="submit" class="login-btn-futuristic" style="margin-top: 15px; height: 55px; font-size: 1.1rem;">
+                    <button type="submit" class="login-btn-futuristic" style="margin-top: 15px; height: 55px; font-size: 1.1rem; background: linear-gradient(135deg, var(--cc-primary) 0%, #059669 100%); color: #05070a;">
                         <span>Login</span>
                     </button>
                     <div style="text-align: center; margin-top: 15px;">
-                        <span style="color: #666; font-size: 0.9rem;">New to AuditScope?</span>
-                        <a href="#" id="show-signup-link" style="color: var(--primary); font-weight: 600; text-decoration: none; margin-left: 5px;">Create Account</a>
+                        <span style="color: var(--cc-text-muted); font-size: 0.9rem;">New to AuditScope?</span>
+                        <a href="#" id="show-signup-link" style="color: var(--cc-primary); font-weight: 600; text-decoration: none; margin-left: 5px;">Create Account</a>
                     </div>
                 </form>
 
@@ -114,44 +114,10 @@
                     </div>
                 </form>
 
-                <div class="divider">
-                    <span>OR ENTERPRISE IDENTITY</span>
-                </div>
-                
-                <div id="google-login-container">
-                    <div id="g_id_onload" 
-                        data-client_id="" 
-                        data-context="signin" 
-                        data-ux_mode="popup" 
-                        data-callback="handleCredentialResponse" 
-                        data-auto_prompt="false">
-                    </div>
-                    <div class="g_id_signin" 
-                        data-type="standard" 
-                        data-shape="pill" 
-                        data-theme="outline" 
-                        data-text="signin_with" 
-                        data-size="large" 
-                        data-logo_alignment="left" 
-                        style="display: flex; justify-content: center; margin-bottom: 25px;">
-                    </div>
-                </div>
 
-                <div id="google-warning" style="display: none; background: #fffcf0; border: 1px solid #ffcc00; padding: 15px; border-radius: 12px; margin-bottom: 25px; display: flex; align-items: flex-start; gap: 12px;">
-                    <ion-icon name="warning" style="color: #ff9900; font-size: 1.4rem; flex-shrink: 0;"></ion-icon>
-                    <div style="font-size: 0.85rem; color: #666; line-height: 1.4;">
-                        <strong>Provider Unconfigured:</strong> External identity federation is not active. Please use the <strong>Guest Access</strong> bypass below.
-                    </div>
-                </div>
 
-                <button id="mock-login-btn" class="mock-btn-futuristic" style="height: 52px; border-radius: 12px;">
-                    <ion-icon name="finger-print-outline" style="font-size: 1.4rem;"></ion-icon>
-                    <span>BYPASS TO GUEST CONSOLE</span>
-                </button>
-                
                 <div class="login-footer" style="text-align: center; border-top: 1px solid var(--glass-border); padding-top: 25px;">
                     <p>Authorized access only. <a href="index.html" style="margin-left: 10px; color: var(--primary); font-weight: 800;">Go Back Home</a></p>
-                    <div class="system-status" style="margin-top: 15px;"><span class="pulse-dot"></span> System Status: Online & Secure</div>
                 </div>
             </div>
         </div>

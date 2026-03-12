@@ -68,11 +68,12 @@ async function runAudit(keyFilePath, logCallback) {
         try {
             logCallback(`Scanning ${name}...`);
             await fn();
+        } catch (e) {
+            logCallback(`Error scanning ${name}: ${e.message}`);
+        } finally {
             completedSections++;
             const percent = Math.min(100, Math.round((completedSections / totalSections) * 100));
             logCallback(`PROGRESS: ${percent}%`);
-        } catch (e) {
-            logCallback(`Error scanning ${name}: ${e.message}`);
         }
     };
 
@@ -966,7 +967,7 @@ async function runAudit(keyFilePath, logCallback) {
                     addVuln('storage', b.name, 'Bucket is publicly accessible.', 'Critical', 'Restrict bucket access by removing public IAM members.');
                 }
             } catch (e) {
-                logCallback(`Warning: Could not check IAM for bucket ${b.name}: ${e.message}`);
+                logCallback(`Warning: IAM check failed for bucket ${b.name}: ${e.message}`);
             }
             // Uniform bucket-level access
             if (!b.iamConfiguration?.uniformBucketLevelAccess?.enabled) {

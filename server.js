@@ -5,7 +5,48 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
+
+// --- Credential Encryption (AES-256-GCM) ---
+const ENCRYPTION_KEY = process.env.CRED_ENCRYPTION_KEY
+    ? Buffer.from(process.env.CRED_ENCRYPTION_KEY, 'hex')
+    : crypto.scryptSync('auditscope-secure-key-2025', 'salt-cloud-audit', 32);
+
+function encryptCredential(text) {
+    if (!text) return null;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    const encrypted = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return iv.toString('hex') + ':' + tag.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+function decryptCredential(encoded) {
+    if (!encoded || !encoded.includes(':')) return encoded; // Handle legacy/plain values
+    try {
+        const [ivHex, tagHex, dataHex] = encoded.split(':');
+        const iv = Buffer.from(ivHex, 'hex');
+        const tag = Buffer.from(tagHex, 'hex');
+        const data = Buffer.from(dataHex, 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+        decipher.setAuthTag(tag);
+        return decipher.update(data, undefined, 'utf8') + decipher.final('utf8');
+    } catch (e) {
+        console.warn('[CRYPT] Decryption failed, returning raw value:', e.message);
+        return encoded;
+    }
+}
+
+function decryptScheduleCredentials(credentials) {
+    if (!credentials) return null;
+    return {
+        accessKey: decryptCredential(credentials.accessKey),
+        secretKey: decryptCredential(credentials.secretKey),
+        region: credentials.region,
+        keyFileContent: credentials.keyFileContent
+    };
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -14,6 +55,53 @@ const client = new OAuth2Client(CLIENT_ID);
 
 app.use(cors());
 app.use(express.json());
+
+const { sendSecurityReport, sendWelcomeEmail } = require('./email_service');
+
+// API: Get saved AWS credentials for a user (masked for display)
+app.get('/api/user/aws-credentials', async (req, res) => {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
+    try {
+        const user = await User.findOne({ $or: [{ username: userId }, { email: userId }] });
+        if (!user || !user.awsCredentials || !user.awsCredentials.accessKey) {
+            return res.json({ success: true, hasSaved: false });
+        }
+        const key = user.awsCredentials.accessKey;
+        // Mask key — show first 4 and last 4 chars only e.g. AKIA...MPLE
+        const masked = key.length > 8
+            ? key.substring(0, 4) + '••••••••' + key.substring(key.length - 4)
+            : '••••••••••••••••';
+        return res.json({
+            success: true,
+            hasSaved: true,
+            maskedKey: masked,
+            region: user.awsCredentials.region || 'us-east-1'
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// API: Save/update AWS credentials for a user (from profile settings)
+app.post('/api/user/aws-credentials', async (req, res) => {
+    const { userId, accessKey, secretKey, region } = req.body;
+    if (!userId || !accessKey || !secretKey) return res.status(400).json({ success: false, message: 'Missing required fields' });
+    try {
+        await User.findOneAndUpdate(
+            { $or: [{ username: userId }, { email: userId }] },
+            { $set: { 
+                'awsCredentials.accessKey': accessKey.trim(), 
+                'awsCredentials.secretKey': secretKey.trim(), 
+                'awsCredentials.region': region || 'us-east-1' 
+            } },
+            { new: true }
+        );
+        res.json({ success: true, message: 'AWS credentials saved successfully' });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
 
 // API: Get available keys for a user/company
 app.get('/api/user/keys', async (req, res) => {
@@ -389,10 +477,10 @@ async function saveScanResults(userId, company, platform, results, keyName = '')
         // Calculate summary (Consolidate critical into high)
         const services = results.services || {};
         const summary = {
-            high: Object.values(services).reduce((a, s) => a + (s.summary?.high || 0) + (s.summary?.critical || 0), 0),
-            medium: Object.values(services).reduce((a, s) => a + (s.summary?.medium || 0), 0),
-            low: Object.values(services).reduce((a, s) => a + (s.summary?.low || 0), 0),
-            secure: Object.values(services).reduce((a, s) => a + (s.summary?.secure || 0), 0)
+            high: Object.values(services).reduce((a, s) => a + (s && s.summary ? (s.summary.high || 0) + (s.summary.critical || 0) : 0), 0),
+            medium: Object.values(services).reduce((a, s) => a + (s && s.summary ? (s.summary.medium || 0) : 0), 0),
+            low: Object.values(services).reduce((a, s) => a + (s && s.summary ? (s.summary.low || 0) : 0), 0),
+            secure: Object.values(services).reduce((a, s) => a + (s && s.summary ? (s.summary.secure || 0) : 0), 0)
         };
         summary.totalVulnerabilities = summary.high + summary.medium + summary.low;
         
@@ -442,22 +530,10 @@ async function getLatestScanResults(userId, platform) {
     if (!dbConnected) return null;
     
     try {
-        let query = { userId, platform, isLatest: true };
-        
-        // Isolation Check
-        const user = await User.findOne({ username: userId });
-        if (user && user.company && user.company !== 'Internal') {
-             // If company user, find latest for COMPANY (not just user)
-             // Actually, usually "latest" is per-project. 
-             // But for the dashboard "latest scan" card... let's keep it to user's latest for now to avoid confusion,
-             // OR allow seeing company's latest. 
-             // For safety/privacy, explicit user scope is fine for "Latest", 
-             // but let's at least enforce they are in the same company if we were to allow sharing.
-             // Current logic: Find *my* latest. That's safe.
-             // If we want "Company Dashboard", we'd change this.
-             // User's request is "Don't show OTHER company data".
-             // Showing MY data is safe.
-        }
+        // If platform is 'any' or not provided, get the absolute latest scan across all platforms
+        let query = (platform && platform !== 'any')
+            ? { userId, platform, isLatest: true }
+            : { userId };
 
         const scan = await ScanResults.findOne(query).sort({ timestamp: -1 });
         return scan;
@@ -551,6 +627,7 @@ app.post('/api/auth/login', async (req, res) => {
                 email: user.email || (user.username + "@internal.audit"), 
                 picture: user.profilePicture || ("https://ui-avatars.com/api/?name=" + (user.displayName || user.username)),
                 role: user.role || "Security Auditor",
+                company: user.company || "Internal",
                 createdAt: user.createdAt || new Date()
             },
             token: "mock-jwt-token"
@@ -659,10 +736,12 @@ app.post('/api/auth/google', async (req, res) => {
         res.json({ 
             success: true, 
             user: {
+                username: finalUser.username,
                 name: finalUser.displayName,
                 email: finalUser.email,
                 picture: finalUser.profilePicture,
                 role: finalUser.role,
+                company: finalUser.company || "Internal",
                 createdAt: finalUser.createdAt
             }, 
             token: token || "mock-jwt-token" 
@@ -743,7 +822,7 @@ app.post('/api/user/upload-picture', profileUpload.single('profilePic'), async (
 // --- Scheduling APIs ---
 
 app.post('/api/user/schedule', async (req, res) => {
-    const { userId, platform, frequency, time, dayOfWeek, dayOfMonth, date, notifyEmail, email, credentials, active, timezone, selectedKeyId } = req.body;
+    const { id, userId, platform, frequency, time, dayOfWeek, dayOfMonth, date, startDate, endDate, notifyEmail, email, credentials, active, timezone, selectedKeyId } = req.body;
     
     try {
         if (!dbConnected) throw new Error("Database unavailable");
@@ -752,43 +831,72 @@ app.post('/api/user/schedule', async (req, res) => {
         const user = await User.findOne({ username: userId });
         if (user) userCompany = user.company;
 
-        const update = {
+        // Map & encrypt credentials before storing
+        let encryptedCredentials = null;
+        if (credentials) {
+            // Frontend sends { awsAccessKeyId, awsSecretAccessKey } — map to schema fields
+            const rawKey = credentials.awsAccessKeyId || credentials.accessKey;
+            const rawSecret = credentials.awsSecretAccessKey || credentials.secretKey;
+            if (rawKey || rawSecret) {
+                encryptedCredentials = {
+                    accessKey: encryptCredential(rawKey),
+                    secretKey: encryptCredential(rawSecret),
+                    region: credentials.region || 'all'
+                };
+                console.log(`[CRED] AWS credentials encrypted for user: ${userId}`);
+            }
+        }
+
+        const updateData = {
+            userId,
             frequency,
             time,
             dayOfWeek,
             dayOfMonth,
             notifyEmail,
             email,
-            credentials,
+            credentials: encryptedCredentials,
             active,
-            timezone, // Save timezone
+            timezone,
             company: userCompany,
             platform: platform || 'GCP',
-            date, // For one-time schedules
+            date,
+            startDate,
+            endDate,
             selectedKeyId: selectedKeyId || null
         };
 
         const targetPlatform = platform || 'GCP';
+        let schedule;
 
-        const schedule = await Schedule.findOneAndUpdate(
-            { userId, platform: targetPlatform },
-            { $set: update },
-            { upsert: true, new: true }
-        );
+        if (id) {
+            // Update existing schedule
+            schedule = await Schedule.findOneAndUpdate(
+                { _id: id },
+                { $set: updateData },
+                { new: true }
+            );
+            if (!schedule) return res.status(404).json({ success: false, message: "Schedule not found" });
+        } else {
+            // Create NEW schedule
+            schedule = new Schedule(updateData);
+            await schedule.save();
+        }
 
-        if (active) {
-            // Ensure we pass the credentials from the DB if they weren't in the request
-            // 'schedule' is the document returned from findOneAndUpdate with {new: true}
-            const finalCredentials = credentials || schedule.credentials;
+        if (schedule.active) {
+            // Decrypt credentials before passing to scheduler (which runs the actual scan)
+            const storedCreds = encryptedCredentials || schedule.credentials;
+            const decryptedCreds = decryptScheduleCredentials(storedCreds);
 
             scheduler.scheduleScan(userId, {
+                id: schedule._id.toString(),
                 platform: targetPlatform,
-                ...update,
-                credentials: finalCredentials,
-                date 
+                ...updateData,
+                credentials: decryptedCreds,
+                date
             });
         } else {
-            scheduler.stopScan(userId, targetPlatform);
+            scheduler.stopScan(userId, targetPlatform, schedule._id.toString());
         }
 
         res.json({ success: true, schedule });
@@ -816,12 +924,31 @@ app.get('/api/user/schedules', async (req, res) => {
 });
 
 app.get('/api/user/schedule', async (req, res) => {
-    const { userId, platform } = req.query;
+    const { userId, platform, id } = req.query;
+    console.log(`[GET_SCHEDULE] Req: id='${id}', userId='${userId}', platform='${platform}'`);
     try {
         if (!dbConnected) throw new Error("Database unavailable");
-        const schedule = await Schedule.findOne({ userId, platform });
+        
+        let query = {};
+        if (id && id !== 'undefined' && id !== 'null') {
+            query = { _id: id };
+        } else if (userId && platform) {
+            query = { userId, platform };
+        } else {
+            return res.status(400).json({ success: false, message: "Missing id or userId+platform" });
+        }
+
+        console.log(`[GET_SCHEDULE] Query:`, JSON.stringify(query));
+        const schedule = await Schedule.findOne(query);
+        console.log(`[GET_SCHEDULE] Found:`, !!schedule);
+        
+        if (!schedule) {
+            return res.json({ success: false, message: "Schedule not found in database." });
+        }
+        
         res.json({ success: true, schedule });
     } catch (e) {
+        console.error(`[GET_SCHEDULE] Error:`, e.message);
         res.status(500).json({ success: false, message: e.message });
     }
 });
@@ -868,10 +995,13 @@ app.post('/api/user/schedule/test', async (req, res) => {
 
         console.log(`[SERVER] Manually triggering scan for ${userId} (${platform})`);
         
+        // Decrypt stored credentials before running scan
+        const decryptedCreds = decryptScheduleCredentials(schedule.credentials);
+
         // Pass values from request if present, otherwise fallback to schedule defaults
         const results = await scheduler.triggerManualScan(userId, {
             platform: platform.toUpperCase(),
-            credentials: schedule.credentials,
+            credentials: decryptedCreds,
             company: schedule.company,
             notifyEmail: notifyEmail !== undefined ? notifyEmail : schedule.notifyEmail,
             email: email || schedule.email,
@@ -957,14 +1087,21 @@ app.post('/api/team/add', async (req, res) => {
     }
 
     const username = email.split('@')[0];
+    const requester = req.body.adminUsername; // Admin who is adding the user
     
     try {
+        let adminCompany = 'Internal';
+        if (requester && dbConnected) {
+            const admin = await User.findOne({ username: requester });
+            if (admin) adminCompany = admin.company || 'Internal';
+        }
+
         const userData = {
             username,
             displayName: name,
             email,
             role,
-            company: 'AuditScope',
+            company: adminCompany, // Now uses Admin's Company
             profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
             password,
             createdAt: new Date()
@@ -976,6 +1113,10 @@ app.post('/api/team/add', async (req, res) => {
             const newUser = new User(userData);
             await newUser.save();
             await backupData(); // Backup after adding member
+
+            // Send Welcome Email with Credentials
+            console.log(`[TEAM] Triggering welcome email for ${email}...`);
+            await sendWelcomeEmail(email, name, password);
         } else {
             throw new Error("Database unavailable");
         }
@@ -1034,15 +1175,16 @@ app.post('/api/history/clear', async (req, res) => {
     }
 });
 
-// API: Scan Results Management
+// API: Get latest scan for user (specific platform)
 app.get('/api/scan-results/latest', async (req, res) => {
     const { userId, platform } = req.query;
-    if (!userId || !platform) {
-        return res.status(400).json({ success: false, message: 'userId and platform required' });
+    if (!userId) {
+        return res.status(400).json({ success: false, message: 'userId required' });
     }
     
     try {
-        const scan = await getLatestScanResults(userId, platform);
+        // If no platform specified or 'any', get the absolute latest scan across all platforms
+        const scan = await getLatestScanResults(userId, platform || 'any');
         if (scan) {
             res.json({ success: true, scan });
         } else {
@@ -1098,6 +1240,8 @@ app.post('/api/scan-gcp', keyUpload.single('keyFile'), async (req, res) => {
     // Set headers for streaming
     res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
+    res.setHeader('Cache-Control', 'no-cache');
 
     const log = (msg) => {
         res.write(`LOG: ${msg}\n`);
@@ -1194,6 +1338,8 @@ app.post('/api/scan-gcp', keyUpload.single('keyFile'), async (req, res) => {
 app.post('/api/scan-aws', async (req, res) => {
     res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache');
 
     const log = (msg) => res.write(`LOG: ${msg}\n`);
 
@@ -1209,7 +1355,12 @@ app.post('/api/scan-aws', async (req, res) => {
         const region = awsRegion || 'us-east-1';
         
         // Run Real AWS Audit
-        const results = await runAWSAudit(awsAccessKeyId, awsSecretAccessKey, region, log);
+        const results = await runAWSAudit(
+            awsAccessKeyId.trim(), 
+            awsSecretAccessKey.trim(), 
+            region, 
+            log
+        );
 
         // Lookup User for Company info
         let userCompany = 'Internal';
@@ -1408,12 +1559,16 @@ async function initSchedules() {
             console.log(`[SERVER-DEBUG] Schedule for ${s.userId}:`, JSON.stringify(s));
             console.log(`[SERVER] Scheduling ${s.platform} scan for ${s.userId} (Frequency: ${s.frequency}, Time: ${s.time})`);
             
+            // Decrypt credentials before passing to scheduler
+            const decryptedCreds = decryptScheduleCredentials(s.credentials);
+
             scheduler.scheduleScan(s.userId, {
+                id: s._id.toString(),
                 platform: s.platform,
                 frequency: s.frequency,
                 notifyEmail: s.notifyEmail,
                 email: s.email,
-                credentials: s.credentials,
+                credentials: decryptedCreds,
                 company: s.company,
                 timezone: s.timezone,
                 time: s.time,
@@ -1422,7 +1577,8 @@ async function initSchedules() {
                 interval: s.interval,
                 startDate: s.startDate,
                 endDate: s.endDate,
-                date: s.date
+                date: s.date,
+                selectedKeyId: s.selectedKeyId
             });
         });
         console.log("[SERVER] All active schedules have been registered with the scheduler.");

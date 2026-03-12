@@ -25,11 +25,12 @@ async function runSimulatedAudit(platform, credentials, log) {
         services: {}
     };
 
-    if (platform === 'aws') {
+    const platformLower = platform.toLowerCase();
+    if (platformLower === 'aws') {
         results.services = await generateAWSSimulation(log);
-    } else if (platform === 'azure') {
+    } else if (platformLower === 'azure') {
         results.services = await generateAzureSimulation(log);
-    } else if (platform === 'gcp') {
+    } else if (platformLower === 'gcp') {
         results.services = await generateGCPSimulation(log);
     }
 
@@ -50,67 +51,163 @@ async function generateAWSSimulation(log) {
     
     return {
         "storage": {
-            summary: { high: 2, medium: 1, low: 3, secure: 5 },
+            summary: { high: 2, medium: 2, low: 2, secure: 5 },
             vulnerabilities: [
-                { asset: "prod-static-assets", description: "Public Read access enabled on bucket", severity: "Critical", remediation: "Disable public access in bucket policy." },
-                { asset: "backup-vault-01", description: "Default encryption (SSE-S3) not enforced", severity: "High", remediation: "Enable default encryption." }
+                { asset: "prod-static-assets", description: "Public Read access enabled on bucket — all objects publicly readable", severity: "Critical", remediation: "Enable 'Block all public access' in S3 settings." },
+                { asset: "backup-vault-01", description: "Default encryption (SSE-S3) not enforced", severity: "High", remediation: "Enable default encryption with AES-256 or KMS." },
+                { asset: "audit-logs-archive", description: "S3 versioning not enabled — risk of accidental deletion", severity: "Low", remediation: "Enable versioning for the bucket." },
+                { asset: "dev-artifacts-bucket", description: "S3 access logging disabled", severity: "Low", remediation: "Enable server access logging." }
             ],
             inventory: [
-                { category: "Storage", id: "prod-static-assets", type: "S3 Bucket", details: "Region: us-east-1, Size: 1.2TB", remarks: "Public Accessible" },
-                { category: "Storage", id: "audit-logs-2024", type: "S3 Bucket", details: "Region: us-east-1, Size: 450GB", remarks: "Encrypted" }
+                { category: "Storage", id: "prod-static-assets", type: "S3 Bucket", details: "Region: us-east-1", remarks: "Public Accessible" },
+                { category: "Storage", id: "backup-vault-01", type: "S3 Bucket", details: "Region: us-west-2", remarks: "No Encryption" },
+                { category: "Storage", id: "audit-logs-archive", type: "S3 Bucket", details: "Region: us-east-1", remarks: "Active" },
+                { category: "Storage", id: "dev-artifacts-bucket", type: "S3 Bucket", details: "Region: ap-south-1", remarks: "Active" }
             ]
         },
         "compute": {
-            summary: { high: 1, medium: 3, low: 5, secure: 8 },
+            summary: { high: 3, medium: 4, low: 3, secure: 10 },
             vulnerabilities: [
-                { asset: "web-server-fleet", description: "Security Group allows inbound SSH (22) from 0.0.0.0/0", severity: "High", remediation: "Restrict SSH to known IP ranges." },
-                { asset: "ami-0c55b159", description: "Custom AMI is publicly accessible.", severity: "High", remediation: "Make the AMI private." }
+                { asset: "web-server-fleet (sg-0a1b2c)", description: "Security Group allows inbound SSH (22) from 0.0.0.0/0", severity: "High", remediation: "Restrict SSH to known IP ranges or use SSM Session Manager." },
+                { asset: "ami-0c55b159cbfafe1f0", description: "Custom AMI is publicly accessible", severity: "High", remediation: "Make the AMI private." },
+                { asset: "i-0987654321abcdef0 (web-srv-01)", description: "IMDSv1 enabled — vulnerable to SSRF attacks", severity: "High", remediation: "Set HttpTokens=required to enforce IMDSv2." },
+                { asset: "vol-01a2b3c4d5e6f7890", description: "EBS volume is not encrypted", severity: "Medium", remediation: "Create encrypted snapshot and replace volume." },
+                { asset: "i-0987654321abcdef0 (web-srv-01)", description: "Public IP 54.21.34.12 assigned", severity: "Medium", remediation: "Use private subnets with NAT for outbound traffic." },
+                { asset: "ecs-cluster-prod", description: "ECS Container Insights not enabled", severity: "Low", remediation: "Enable Container Insights for observability." }
             ],
             inventory: [
-                { category: "Compute", id: "web-srv-01", type: "t3.medium", details: "Public IP: 54.21.34.12", remarks: "Running" },
-                { category: "Compute", id: "db-instance-primary", type: "r5.xlarge", details: "Private IP: 10.0.1.44", remarks: "Running" }
+                { category: "EC2", id: "i-0987654321abcdef0", type: "t3.medium", details: "AZ: us-east-1a, IP: 54.21.34.12", remarks: "Running" },
+                { category: "EC2", id: "i-0abc1234567890def", type: "r5.xlarge", details: "AZ: us-east-1b, Private", remarks: "Running" },
+                { category: "Security Group", id: "sg-0a1b2c3d4e5f", type: "Security Group", details: "web-server-fleet", remarks: "SSH Open" },
+                { category: "ECS", id: "ecs-cluster-prod", type: "ECS Cluster", details: "Tasks: 8", remarks: "Active" },
+                { category: "EKS", id: "eks-prod-cluster", type: "EKS v1.27", details: "Endpoint: Public", remarks: "Running" },
+                { category: "EBS", id: "vol-01a2b3c4d5e6f7890", type: "gp3 (100GB)", details: "AZ: us-east-1a", remarks: "Unencrypted" }
             ]
         },
-        "iam": {
-            summary: { high: 1, medium: 2, low: 10, secure: 15 },
+        "identity-access": {
+            summary: { high: 3, medium: 3, low: 2, secure: 8 },
             vulnerabilities: [
-                { asset: "Root Account", description: "MFA not enabled on root credentials", severity: "Critical", remediation: "Enable hardware or virtual MFA for root." },
-                { asset: "admin-ratan", description: "Privileged user has no MFA enabled.", severity: "Critical", remediation: "Enable MFA immediately." }
+                { asset: "Root Account", description: "MFA not enabled on root credentials", severity: "Critical", remediation: "Enable hardware or virtual MFA for root account." },
+                { asset: "Root Account", description: "Root account has active access keys", severity: "Critical", remediation: "Delete root access keys immediately." },
+                { asset: "admin-ratan", description: "IAM user has no MFA device", severity: "High", remediation: "Enforce MFA for all IAM users." },
+                { asset: "deploy-automation", description: "Access key is 127 days old (> 90 days)", severity: "High", remediation: "Rotate access keys every 90 days." },
+                { asset: "Password Policy", description: "No account password policy configured", severity: "High", remediation: "Configure strong password policy with complexity requirements." },
+                { asset: "IAM Policies", description: "8 entities have AdministratorAccess — overly permissive", severity: "Medium", remediation: "Apply principle of least privilege." }
             ],
             inventory: [
-                { category: "Identity", id: "admin-ratan", type: "IAM User", details: "Last Login: 2 days ago", remarks: "Privileged" },
-                { category: "Identity", id: "dev-service-account", type: "Access Key", details: "Rotating: Yes", remarks: "Secure" }
+                { category: "IAM", id: "admin-ratan", type: "IAM User", details: "Last Login: 2 days ago", remarks: "Privileged" },
+                { category: "IAM", id: "deploy-automation", type: "IAM User", details: "Last Login: 7 days ago", remarks: "AccessKey Old" },
+                { category: "IAM", id: "ec2-instance-role", type: "IAM Role", details: "Service: ec2.amazonaws.com", remarks: "Instance Role" },
+                { category: "IAM", id: "ci-cd-role", type: "IAM Role", details: "Service: codebuild.amazonaws.com", remarks: "CI/CD Role" }
             ]
         },
-        "devops": {
-            summary: { high: 1, medium: 2, low: 3, secure: 4 },
+        "network": {
+            summary: { high: 1, medium: 2, low: 3, secure: 6 },
             vulnerabilities: [
-                { asset: "primary-build-proj", description: "Potential secret found in plaintext environment variable: AWS_SECRET_KEY", severity: "High", remediation: "Use Secrets Manager." },
-                { asset: "release-pipeline", description: "Pipeline artifact store not encrypted with KMS.", severity: "Medium", remediation: "Configure KMS encryption." }
+                { asset: "vpc-0a1b2c3d4e5f (default)", description: "Default VPC in use — resources should use custom VPCs", severity: "Low", remediation: "Create a custom VPC and migrate workloads." },
+                { asset: "vpc-0123456789abcdef0", description: "VPC Flow Logs not enabled", severity: "Medium", remediation: "Enable VPC Flow Logs to CloudWatch Logs or S3." },
+                { asset: "nacl-prod", description: "NACL allows ALL inbound traffic from 0.0.0.0/0", severity: "High", remediation: "Restrict NACL inbound rules to required ports only." },
+                { asset: "d123456789.cloudfront.net", description: "CloudFront using outdated TLS v1.0", severity: "High", remediation: "Set minimum TLS to TLSv1.2_2021." }
             ],
             inventory: [
-                { category: "CloudBuild", id: "primary-build-proj", type: "CodeBuild Project", details: "Runtime: LINUX_CONTAINER", remarks: "Vulnerable Env" },
-                { category: "CloudBuild", id: "release-pipeline", type: "CodePipeline", details: "Stages: 4", remarks: "Standard" }
+                { category: "VPC", id: "vpc-0a1b2c3d4e5f", type: "Default VPC", details: "CIDR: 172.31.0.0/16", remarks: "Default" },
+                { category: "VPC", id: "vpc-0123456789abcdef0", type: "Custom VPC", details: "CIDR: 10.0.0.0/16", remarks: "Production" },
+                { category: "Route 53", id: "example.com.", type: "Public Hosted Zone", details: "Records: 12", remarks: "DNS Zone" },
+                { category: "CloudFront", id: "d123456789.cloudfront.net", type: "CloudFront Distribution", details: "Status: Deployed", remarks: "CDN" }
             ]
         },
-        "artifacts": {
-            summary: { high: 0, medium: 1, low: 2, secure: 3 },
+        "databases": {
+            summary: { high: 2, medium: 3, low: 2, secure: 7 },
             vulnerabilities: [
-                { asset: "app-container-repo", description: "ECR scan on push is disabled.", severity: "Medium", remediation: "Enable scan on push." }
+                { asset: "prod-mysql-db", description: "RDS instance is publicly accessible", severity: "Critical", remediation: "Disable public accessibility and use private subnets." },
+                { asset: "prod-mysql-db", description: "RDS backup retention is 1 day (< 7 days)", severity: "Medium", remediation: "Set backup retention to 7+ days." },
+                { asset: "prod-mysql-db", description: "Multi-AZ not enabled — single point of failure", severity: "Low", remediation: "Enable Multi-AZ for production databases." },
+                { asset: "redis-session-cache", description: "ElastiCache transit encryption not enabled", severity: "Medium", remediation: "Enable in-transit encryption (TLS)." },
+                { asset: "user-events-table", description: "DynamoDB PITR (Point-in-Time Recovery) not enabled", severity: "Medium", remediation: "Enable PITR for DynamoDB data protection." }
             ],
             inventory: [
-                { category: "Registry", id: "app-container-repo", type: "ECR Repository", details: "URI: 123456789.dkr.ecr.us-east-1.amazonaws.com", remarks: "Scan Disabled" }
+                { category: "RDS", id: "prod-mysql-db", type: "MySQL 8.0 (db.t3.medium)", details: "Public IP: Yes", remarks: "Production DB" },
+                { category: "RDS", id: "reporting-postgres", type: "PostgreSQL 14 (db.r5.large)", details: "Multi-AZ: Yes", remarks: "Encrypted" },
+                { category: "ElastiCache", id: "redis-session-cache", type: "Redis 7.0 (cache.t3.micro)", details: "Nodes: 1", remarks: "No TLS" },
+                { category: "DynamoDB", id: "user-events-table", type: "DynamoDB Table", details: "Items: 4.2M", remarks: "No PITR" }
             ]
         },
         "serverless": {
-            summary: { high: 1, medium: 2, low: 1, secure: 5 },
+            summary: { high: 2, medium: 2, low: 2, secure: 6 },
             vulnerabilities: [
-                { asset: "data-processor-lambda", description: "Lambda function is publicly accessible", severity: "Critical", remediation: "Remove public trigger." },
-                { asset: "api-handler-lambda", description: "Function uses outdated nodejs12.x runtime", severity: "Medium", remediation: "Update to nodejs20.x." }
+                { asset: "data-processor-lambda", description: "Lambda function has public invocation policy (Principal: *)", severity: "Critical", remediation: "Restrict Lambda resource policy to known callers." },
+                { asset: "api-handler-lambda", description: "Deprecated runtime: nodejs12.x", severity: "High", remediation: "Update to nodejs20.x or later." },
+                { asset: "image-resizer-fn", description: "Lambda not deployed in a VPC", severity: "Low", remediation: "Deploy Lambda in a VPC for network isolation." }
             ],
             inventory: [
-                { category: "Serverless", id: "data-processor-lambda", type: "AWS Lambda", details: "Region: us-east-1", remarks: "Public" },
-                { category: "Serverless", id: "api-handler-lambda", type: "AWS Lambda", details: "Runtime: nodejs12.x", remarks: "Deprecated" }
+                { category: "Lambda", id: "data-processor-lambda", type: "Lambda (python3.9)", details: "Memory: 512MB", remarks: "Public" },
+                { category: "Lambda", id: "api-handler-lambda", type: "Lambda (nodejs12.x)", details: "Memory: 128MB", remarks: "Deprecated Runtime" },
+                { category: "Lambda", id: "image-resizer-fn", type: "Lambda (python3.10)", details: "Memory: 1024MB", remarks: "No VPC" }
+            ]
+        },
+        "loadbalancing": {
+            summary: { high: 1, medium: 1, low: 2, secure: 4 },
+            vulnerabilities: [
+                { asset: "prod-alb-main", description: "ALB has HTTP listener but no HTTPS — traffic unencrypted", severity: "High", remediation: "Add HTTPS listener and redirect HTTP to HTTPS." },
+                { asset: "internal-nlb-01", description: "NLB access logging not enabled", severity: "Low", remediation: "Enable access logs to S3 for traffic monitoring." },
+                { asset: "legacy-classic-lb", description: "Classic ELB in use — deprecated, migrate to ALB/NLB", severity: "Low", remediation: "Migrate to Application or Network Load Balancer." }
+            ],
+            inventory: [
+                { category: "ELB", id: "prod-alb-main", type: "ALB (internet-facing)", details: "AZ: us-east-1a, us-east-1b", remarks: "HTTP Only" },
+                { category: "ELB", id: "internal-nlb-01", type: "NLB (internal)", details: "AZ: us-east-1a", remarks: "Encrypted" },
+                { category: "ELB", id: "legacy-classic-lb", type: "Classic ELB", details: "Scheme: internet-facing", remarks: "Deprecated" }
+            ]
+        },
+        "operations": {
+            summary: { high: 2, medium: 2, low: 2, secure: 5 },
+            vulnerabilities: [
+                { asset: "CloudTrail us-west-2", description: "No CloudTrail configured in us-west-2", severity: "High", remediation: "Enable CloudTrail in all regions." },
+                { asset: "main-trail", description: "CloudTrail log file validation disabled", severity: "Medium", remediation: "Enable log file validation to detect tampering." },
+                { asset: "main-trail", description: "CloudTrail logs not encrypted with KMS", severity: "Low", remediation: "Configure SSE-KMS encryption for trail logs." },
+                { asset: "prod-app-logs", description: "CloudWatch Log Group has no retention policy (never expires)", severity: "Low", remediation: "Set a 90-day retention policy." },
+                { asset: "kms-app-key-01", description: "KMS customer-managed key rotation not enabled", severity: "Medium", remediation: "Enable automatic annual key rotation." }
+            ],
+            inventory: [
+                { category: "CloudTrail", id: "main-trail", type: "CloudTrail", details: "Bucket: audit-logs-prod", remarks: "Active" },
+                { category: "CloudWatch", id: "prod-alarms", type: "CloudWatch Alarms", details: "Total: 12, OK: 10", remarks: "Monitoring" },
+                { category: "Log Group", id: "prod-app-logs", type: "CloudWatch Logs", details: "Retention: Never Expire", remarks: "Cost Risk" },
+                { category: "KMS", id: "kms-app-key-01", type: "KMS CMK", details: "Usage: ENCRYPT_DECRYPT", remarks: "No Rotation" }
+            ]
+        },
+        "artifacts": {
+            summary: { high: 0, medium: 2, low: 1, secure: 3 },
+            vulnerabilities: [
+                { asset: "app-container-repo", description: "ECR scan on push is disabled — images not checked for CVEs", severity: "Medium", remediation: "Enable scan on push for automated vulnerability detection." },
+                { asset: "base-images-repo", description: "ECR repo not encrypted with KMS", severity: "Low", remediation: "Configure KMS encryption for ECR repositories." }
+            ],
+            inventory: [
+                { category: "ECR", id: "app-container-repo", type: "ECR Repository", details: "URI: 123456789.dkr.ecr.us-east-1.amazonaws.com", remarks: "Scan Disabled" },
+                { category: "ECR", id: "base-images-repo", type: "ECR Repository", details: "Format: DOCKER", remarks: "No KMS" },
+                { category: "ECR", id: "helm-charts-repo", type: "ECR Repository (OCI)", details: "Format: Helm", remarks: "Secure" }
+            ]
+        },
+        "analytics": {
+            summary: { high: 0, medium: 1, low: 3, secure: 5 },
+            vulnerabilities: [
+                { asset: "payment-events-topic", description: "SNS topic not encrypted with KMS", severity: "Low", remediation: "Enable SSE-KMS for SNS topic." },
+                { asset: "order-processing-queue", description: "SQS queue not encrypted", severity: "Low", remediation: "Enable SSE or KMS encryption for SQS." },
+                { asset: "order-processing-queue", description: "SQS queue has no Dead Letter Queue (DLQ)", severity: "Medium", remediation: "Configure a DLQ to handle failed message processing." }
+            ],
+            inventory: [
+                { category: "SNS", id: "payment-events-topic", type: "SNS Topic", details: "Subscriptions: 3", remarks: "No KMS" },
+                { category: "SQS", id: "order-processing-queue", type: "SQS Queue", details: "Messages: 42", remarks: "No DLQ" },
+                { category: "SQS", id: "notifications-dlq", type: "SQS Dead Letter Queue", details: "Messages: 0", remarks: "Secure" }
+            ]
+        },
+        "aiml": {
+            summary: { high: 2, medium: 0, low: 0, secure: 1 },
+            vulnerabilities: [
+                { asset: "GuardDuty us-west-2", description: "GuardDuty not enabled in us-west-2", severity: "High", remediation: "Enable GuardDuty in all regions for threat detection." },
+                { asset: "GuardDuty us-east-1", description: "3 HIGH-severity GuardDuty findings detected", severity: "High", remediation: "Review and remediate GuardDuty findings in the console." }
+            ],
+            inventory: [
+                { category: "Security", id: "guardduty-us-east-1", type: "GuardDuty Detector", details: "Findings: 3 High", remarks: "Enabled" },
+                { category: "Security", id: "guardduty-us-west-2", type: "GuardDuty Detector", details: "Status: Disabled", remarks: "⚠️ Disabled" }
             ]
         }
     };

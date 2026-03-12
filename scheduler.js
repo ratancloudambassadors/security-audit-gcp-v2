@@ -10,7 +10,8 @@ class AuditScheduler {
         this.jobs = new Map(); // Store active active cron jobs
         
         // Heartbeat removed after verification.
-        console.log("[SCHEDULER] Initialized.");
+        this.leadTimeMinutes = 0;
+        console.log(`[SCHEDULER] Initialized with ${this.leadTimeMinutes}min lead time.`);
     }
 
     /**
@@ -20,50 +21,86 @@ class AuditScheduler {
      */
     scheduleScan(userId, config) {
         console.log(`[SCHEDULER-DEBUG] Entering scheduleScan for ${userId}. Config:`, JSON.stringify(config));
-        const { platform, frequency, email, credentials, startDate, endDate } = config;
+        const { platform, frequency, email, credentials, startDate, endDate, id } = config;
         
-        // Stop existing job for this user/platform if any
-        this.stopScan(userId, platform);
+        // Stop existing job for this specific schedule ID if any
+        this.stopScan(userId, platform, id);
 
         let cronExpression;
         const [hour, minute] = (config.time || '09:00').split(':').map(Number);
+        const leadTimeMinutes = this.leadTimeMinutes;
+
+        // Calculate trigger time with lead offset
+        let tMin = minute - leadTimeMinutes;
+        let tHour = hour;
+        let tDayShift = 0;
+
+        if (tMin < 0) {
+            tMin += 60;
+            tHour -= 1;
+        }
+        if (tHour < 0) {
+            tHour += 24;
+            tDayShift = -1;
+        }
+
         const dow = config.dayOfWeek !== undefined ? config.dayOfWeek : 1;
         const dom = config.dayOfMonth !== undefined ? config.dayOfMonth : 1;
 
+        // Adjusted fields for cron
+        let triggerDow = dow;
+        let triggerDom = dom;
+        let triggerDateString = config.date;
+
+        if (tDayShift === -1) {
+            triggerDow = (dow - 1 + 7) % 7;
+            // For DOM, if it was 1, it's hard to specify "last day of month" cleanly in one cron exp without L.
+            // Simplified: subtract 1. If it becomes 0, we'll just log a warning for now as it's an edge case.
+            triggerDom = dom - 1; 
+
+            if (config.date) {
+                const [yyyy, mm, dd] = config.date.split('-').map(Number);
+                const d = new Date(yyyy, mm - 1, dd);
+                d.setDate(d.getDate() - 1);
+                const ny = d.getFullYear();
+                const nm = d.getMonth() + 1;
+                const nd = d.getDate();
+                triggerDateString = `${ny}-${nm < 10 ? '0' + nm : nm}-${nd < 10 ? '0' + nd : nd}`;
+            }
+        }
+
         switch (frequency) {
             case 'daily':
-                cronExpression = `${minute} ${hour} * * *`;
+                cronExpression = `${tMin} ${tHour} * * *`;
                 break;
             case 'weekly':
-                cronExpression = `${minute} ${hour} * * ${dow}`;
+                cronExpression = `${tMin} ${tHour} * * ${triggerDow}`;
                 break;
             case 'monthly':
-                cronExpression = `${minute} ${hour} ${dom} * *`;
+                if (triggerDom < 1) {
+                    console.warn(`[SCHEDULER] Lead time pushed Monthly scan to previous month's end. Reverting to original day for safety.`);
+                    cronExpression = `${tMin} ${tHour} ${dom} * *`;
+                } else {
+                    cronExpression = `${tMin} ${tHour} ${triggerDom} * *`;
+                }
                 break;
             case 'once':
-                if (config.date) {
-                    // Safe parsing of YYYY-MM-DD to avoid server timezone shifts
-                    const [yyyy, mm, dd] = config.date.split('-').map(Number);
-                    cronExpression = `${minute} ${hour} ${dd} ${mm} *`;
-                    console.log(`[SCHEDULER] Planned one-time scan for ${config.date} at ${hour}:${minute} (Cron: ${cronExpression})`);
+                if (triggerDateString) {
+                    const [yyyy, mm, dd] = triggerDateString.split('-').map(Number);
+                    cronExpression = `${tMin} ${tHour} ${dd} ${mm} *`;
+                    console.log(`[SCHEDULER] Planned one-time scan for scheduled time ${config.date} at ${hour}:${minute}`);
+                    console.log(`[SCHEDULER] Lead time trigger: ${triggerDateString} at ${tHour}:${tMin} (Cron: ${cronExpression})`);
                 } else {
                     console.error('[SCHEDULER] Date required for one-time schedule');
                     return;
                 }
                 break;
             case 'custom':
-                 // "Every X Days"
-                 // Use step value for day of month field
-                 // NOTE: node-cron supports */n in DOM field.
-                 // It runs on days 1, 1+n, 1+2n... of the month.
-                 // This is an approximation for "every X days" but resets monthly.
-                 // For true "every X days" across months, we'd need a more complex persistent state.
-                 // For this MVP, we will use the */n syntax which is "Every n days of the month".
                  const interval = config.interval || 2;
-                 cronExpression = `${minute} ${hour} */${interval} * *`;
+                 cronExpression = `${tMin} ${tHour} */${interval} * *`;
                  break;
             case 'test':
-                cronExpression = '*/5 * * * *'; // Every 5 minutes (for testing)
+                cronExpression = '*/5 * * * *'; // Keep test as is 
                 break;
             default:
                 console.error(`[SCHEDULER] Invalid frequency: ${frequency}`);
@@ -90,7 +127,7 @@ class AuditScheduler {
                 end.setHours(23, 59, 59, 999); // End of that day
                 if (new Date() > end) {
                     console.log(`[SCHEDULER] Schedule expired for ${userId} (${platform}). Stopping.`);
-                    this.stopScan(userId, platform);
+                    this.stopScan(userId, platform, id);
                     return;
                 }
             }
@@ -110,7 +147,7 @@ class AuditScheduler {
             // Auto-stop if one-time
             if (frequency === 'once') {
                 console.log(`[SCHEDULER] One-time scan executed. Removing schedule.`);
-                this.stopScan(userId, platform);
+                this.stopScan(userId, platform, id);
             }
 
             try {
@@ -141,7 +178,7 @@ class AuditScheduler {
                     
                     if (!storedKey) {
                         // 1. Try User's specific key
-                        storedKey = await KeyStore.findOne({ uploadedBy: userId });
+                        storedKey = await KeyStore.findOne({ uploadedBy: userId }).sort({ uploadTime: -1 });
                         
                         // 2. If not found, try any key from the same Company
                         if (!storedKey) {
@@ -150,7 +187,7 @@ class AuditScheduler {
                                 // Find any user from the same company who has uploaded a key
                                 const companyUsers = await User.find({ company: user.company }).select('username');
                                 const usernames = companyUsers.map(u => u.username);
-                                storedKey = await KeyStore.findOne({ uploadedBy: { $in: usernames } });
+                                storedKey = await KeyStore.findOne({ uploadedBy: { $in: usernames } }).sort({ uploadTime: -1 });
                                 if (storedKey) {
                                     console.log(`[SCHEDULER] Using company-level key uploaded by ${storedKey.uploadedBy} for ${userId}`);
                                 }
@@ -163,14 +200,17 @@ class AuditScheduler {
                             storedKey.keyContent : JSON.stringify(storedKey.keyContent);
                     }
                 } else if (platformKey === 'AWS' && (!effectiveCreds.accessKey || !effectiveCreds.secretKey)) {
-                    // Try to find AWS credentials in User model
+                    // Try to find AWS credentials in User model — match by username OR email
                     const mongoose = require('mongoose');
                     const User = mongoose.model('User');
-                    const userRecord = await User.findOne({ username: userId });
+                    const userRecord = await User.findOne({ $or: [{ username: userId }, { email: userId }] });
                     if (userRecord && userRecord.awsCredentials && userRecord.awsCredentials.accessKey) {
                         effectiveCreds.accessKey = userRecord.awsCredentials.accessKey;
                         effectiveCreds.secretKey = userRecord.awsCredentials.secretKey;
                         effectiveCreds.region = userRecord.awsCredentials.region || effectiveCreds.region;
+                        console.log(`[SCHEDULER] Using saved AWS credentials for ${userId}`);
+                    } else {
+                        console.error(`[SCHEDULER] No AWS credentials found for userId: ${userId}`);
                     }
                 }
                 
@@ -240,9 +280,9 @@ class AuditScheduler {
                         console.log(`[SCHEDULER] Attempting to send email to ${emailToSend}`);
                         try {
                             await sendSecurityReport(emailToSend, {
+                                ...results,
                                 platform: platform,
                                 summary: summary,
-                                projectId: results.projectId || results.accountId,
                                 timestamp: new Date()
                             });
                              console.log(`[SCHEDULER] Email sent successfully.`);
@@ -262,8 +302,9 @@ class AuditScheduler {
             timezone: timezone
         });
 
-        this.jobs.set(`${userId}-${platform}`, job);
-        console.log(`[SCHEDULER] Scheduled ${frequency} scan for ${userId} (${platform})`);
+        const key = id || `${userId}-${platform}`;
+        this.jobs.set(key, job);
+        console.log(`[SCHEDULER] Scheduled ${frequency} scan for ${userId} (${platform}) [Target: ${config.time}, Trigger: ${tHour}:${tMin}, ID: ${id || 'legacy'}]`);
     }
 
     /**
@@ -295,14 +336,14 @@ class AuditScheduler {
             }
 
             if (!storedKey) {
-                storedKey = await KeyStore.findOne({ uploadedBy: userId });
+                storedKey = await KeyStore.findOne({ uploadedBy: userId }).sort({ uploadTime: -1 });
                 
                 if (!storedKey) {
                     const user = await User.findOne({ username: userId });
                     if (user && user.company && user.company !== 'Internal') {
                         const companyUsers = await User.find({ company: user.company }).select('username');
                         const usernames = companyUsers.map(u => u.username);
-                        storedKey = await KeyStore.findOne({ uploadedBy: { $in: usernames } });
+                        storedKey = await KeyStore.findOne({ uploadedBy: { $in: usernames } }).sort({ uploadTime: -1 });
                         if (storedKey) console.log(`[SCHEDULER] Using company-level key uploaded by ${storedKey.uploadedBy} for manual scan`);
                     }
                 }
@@ -317,11 +358,15 @@ class AuditScheduler {
         if (platformKey === 'AWS' && (!effectiveCreds.accessKey || !effectiveCreds.secretKey)) {
             const mongoose = require('mongoose');
             const User = mongoose.model('User');
-            const userRecord = await User.findOne({ username: userId });
+            // Match by username OR email — userId may be stored either way
+            const userRecord = await User.findOne({ $or: [{ username: userId }, { email: userId }] });
             if (userRecord && userRecord.awsCredentials && userRecord.awsCredentials.accessKey) {
                 effectiveCreds.accessKey = userRecord.awsCredentials.accessKey;
                 effectiveCreds.secretKey = userRecord.awsCredentials.secretKey;
                 effectiveCreds.region = userRecord.awsCredentials.region || effectiveCreds.region;
+                console.log(`[SCHEDULER-MANUAL] Using saved AWS credentials for ${userId}`);
+            } else {
+                console.error(`[SCHEDULER-MANUAL] No AWS credentials found for userId: ${userId}`);
             }
         }
 
@@ -366,9 +411,18 @@ class AuditScheduler {
 
         if (results) {
             const { scanId, summary } = await this.resultHandlers.saveResults(userId, config.company, platform, results);
+            
+            // Enrich results for email service
+            const emailResults = {
+                ...results,
+                platform: platform,
+                summary: summary,
+                timestamp: new Date()
+            };
+
             await this.resultHandlers.saveHistory({
                 performedBy: userId,
-                userEmail: "Manual Scheduler Trigger",
+                userEmail: targetEmail || "Manual Scheduler Trigger",
                 projectId: results.projectId || results.accountId,
                 projectName: results.projectName || results.projectId || `Manual ${platform} Audit`,
                 keyName: "Scheduled Scan Triggered Manually",
@@ -389,17 +443,13 @@ class AuditScheduler {
 
             // 5. Send Email
             const emailToSend = targetEmail || config.email;
+            
             console.log(`[SCHEDULER_DEBUG] Preparing to send email. Notify: ${config.notifyEmail}, Email: ${emailToSend}`);
             
             if (config.notifyEmail && emailToSend) {
                 console.log(`[SCHEDULER_DEBUG] Sending email to ${emailToSend} for ${platform}`);
                 try {
-                    await sendSecurityReport(emailToSend, {
-                        platform: platform,
-                        summary: summary,
-                        projectId: results.projectId || results.accountId,
-                        timestamp: new Date()
-                    });
+                    await sendSecurityReport(emailToSend, emailResults);
                     console.log(`[SCHEDULER_DEBUG] Email sent successfully.`);
                 } catch (emailErr) {
                     console.error(`[SCHEDULER_DEBUG] Email failed:`, emailErr);
@@ -411,12 +461,12 @@ class AuditScheduler {
         return results;
     }
 
-    stopScan(userId, platform) {
-        const key = `${userId}-${platform}`;
+    stopScan(userId, platform, id) {
+        const key = id || `${userId}-${platform}`;
         if (this.jobs.has(key)) {
             this.jobs.get(key).stop();
             this.jobs.delete(key);
-            console.log(`[SCHEDULER] Stopped schedule for ${userId} (${platform})`);
+            console.log(`[SCHEDULER] Stopped schedule for ${userId} (${platform}) [Key: ${key}]`);
         }
     }
 }
