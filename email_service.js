@@ -122,6 +122,39 @@ const createWelcomeTemplate = (name, email, password) => {
     `;
 };
 
+const createOtpTemplate = (otp) => {
+    return `
+    <html>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1e293b; margin: 0; padding: 40px; background-color: #f8fafc;">
+        <div style="max-width: 600px; margin: auto; border-radius: 24px; overflow: hidden; background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; padding: 40px 20px; text-align: center;">
+                <div style="font-size: 40px; margin-bottom: 15px;">🔐</div>
+                <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">Verification Code</h1>
+                <p style="margin: 10px 0 0; opacity: 0.9; font-size: 16px;">Verify your email address to continue</p>
+            </div>
+            
+            <div style="padding: 40px; text-align: center;">
+                <p style="font-size: 16px; margin-bottom: 25px; color: #475569;">Use the following security code to verify your identity. This code will expire in 5 minutes.</p>
+                
+                <div style="background: #f1f5f9; padding: 30px; border-radius: 16px; margin-bottom: 30px; border: 1px dashed #cbd5e1; display: inline-block;">
+                    <span style="font-family: 'Courier New', Courier, monospace; font-size: 48px; font-weight: 800; color: #0f172a; letter-spacing: 12px; margin-left: 12px;">${otp}</span>
+                </div>
+
+                <p style="font-size: 13px; color: #94a3b8; margin-top: 30px;">
+                    If you didn't request this code, you can safely ignore this email.
+                </p>
+            </div>
+            
+            <div style="background: #f8fafc; padding: 25px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
+                AuditScope Security Platform • Cloud Verification System<br>
+                &copy; 2026 All Rights Reserved.
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
 async function sendSecurityReport(toEmail, results) {
     console.log(`[EMAIL_DEBUG] Attempting to send email to ${toEmail}`);
     console.log(`[EMAIL_DEBUG] Results Payload:`, JSON.stringify(results, null, 2));
@@ -191,4 +224,32 @@ async function sendWelcomeEmail(toEmail, name, password) {
     }
 }
 
-module.exports = { sendSecurityReport, sendWelcomeEmail };
+async function sendOtpEmail(toEmail, otp) {
+    console.log(`[EMAIL] Sending OTP Email to: ${toEmail}`);
+    
+    const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: process.env.SMTP_PORT || 587,
+        secure: false,
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+        },
+    });
+
+    try {
+        await transporter.sendMail({
+            from: `"AuditScope Security" <${process.env.SMTP_USER}>`,
+            to: toEmail,
+            subject: `${otp} is your AuditScope verification code`,
+            html: createOtpTemplate(otp)
+        });
+        console.log(`[EMAIL] OTP email delivered to ${toEmail}`);
+        return true;
+    } catch (error) {
+        console.error(`[EMAIL] OTP email failed for ${toEmail}:`, error.message);
+        return false;
+    }
+}
+
+module.exports = { sendSecurityReport, sendWelcomeEmail, sendOtpEmail };

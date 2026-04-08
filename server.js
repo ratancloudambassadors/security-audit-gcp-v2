@@ -56,7 +56,13 @@ const client = new OAuth2Client(CLIENT_ID);
 app.use(cors());
 app.use(express.json());
 
-const { sendSecurityReport, sendWelcomeEmail } = require('./email_service');
+// Request logger for debugging
+app.use((req, res, next) => {
+    console.log(`[HTTP] ${req.method} ${req.url}`);
+    next();
+});
+
+const { sendSecurityReport, sendWelcomeEmail, sendOtpEmail } = require('./email_service');
 
 // API: Get saved AWS credentials for a user (masked for display)
 app.get('/api/user/aws-credentials', async (req, res) => {
@@ -388,6 +394,15 @@ const Schedule = mongoose.model('Schedule', scheduleSchema);
 
 const ScanHistory = mongoose.model('ScanHistory', scanHistorySchema);
 
+// OTP Schema (Temporary codes for email verification)
+const otpSchema = new mongoose.Schema({
+    email: { type: String, required: true, index: true },
+    otp: { type: String, required: true },
+    verified: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now, expires: 300 } // Auto-delete after 5 minutes
+});
+const Otp = mongoose.model('Otp', otpSchema);
+
 // Schema: ScanResults (Complete scan data for persistence)
 const scanResultsSchema = new mongoose.Schema({
     scanId: { type: String, required: true, unique: true },
@@ -637,6 +652,81 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// API: Send OTP for Email Verification
+app.post('/api/auth/send-otp', async (req, res) => {
+    const { email } = req.body;
+    if (!email || !email.includes('@')) {
+        return res.status(400).json({ success: false, message: "Valid email is required." });
+    }
+
+    try {
+        if (!dbConnected) throw new Error("Database not connected.");
+
+        // Check if user already exists
+        const userExists = await User.findOne({ email });
+        if (userExists) {
+            return res.status(400).json({ success: false, message: "User with this email already exists." });
+        }
+
+        // Check if company already exists (only for non-individual)
+        const { company } = req.body;
+        if (company && company !== 'Individual') {
+             const companyExists = await User.findOne({ company: { $regex: new RegExp(`^${company}$`, 'i') } });
+             if (companyExists) {
+                 return res.status(400).json({ 
+                     success: false, 
+                     message: `"${company}" is already registered. Please contact your company admin to get access to our platform.` 
+                 });
+             }
+        }
+
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Save OTP to DB (replace existing if any)
+        await Otp.findOneAndUpdate(
+            { email },
+            { otp, verified: false, createdAt: new Date() },
+            { upsert: true }
+        );
+
+        // Send Email
+        const sent = await sendOtpEmail(email, otp);
+        if (sent) {
+            res.json({ success: true, message: "Verification code sent to your email." });
+        } else {
+            throw new Error("Failed to send verification email. Please check your SMTP settings.");
+        }
+    } catch (e) {
+        console.error("[OTP] Error sending OTP:", e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// API: Verify OTP
+app.post('/api/auth/verify-otp', async (req, res) => {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+        return res.status(400).json({ success: false, message: "Email and OTP are required." });
+    }
+
+    try {
+        if (!dbConnected) throw new Error("Database not connected.");
+
+        const record = await Otp.findOne({ email, otp });
+        if (!record) {
+            return res.status(400).json({ success: false, message: "Invalid or expired verification code." });
+        }
+
+        record.verified = true;
+        await record.save();
+
+        res.json({ success: true, message: "Email verified successfully!" });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 // API: Register (Secure & Company Aware)
 app.post('/api/auth/register', async (req, res) => {
     let { username, password, displayName, company } = req.body;
@@ -673,6 +763,16 @@ app.post('/api/auth/register', async (req, res) => {
                     message: `Organization '${normalizedCompany}' is already registered. Please use a unique name or contact your admin.` 
                 });
             }
+        }
+
+        // 0. Verify OTP if email is provided
+        if (username.includes('@')) {
+            const otpRecord = await Otp.findOne({ email: username, verified: true });
+            if (!otpRecord) {
+                return res.status(400).json({ success: false, message: "Please verify your email with OTP before registering." });
+            }
+            // Cleanup OTP after successful verification usage
+            await Otp.deleteOne({ _id: otpRecord._id });
         }
 
         // 3. Create New User

@@ -183,6 +183,42 @@ let currentSchedules = [];
     const loginSubHeader = document.querySelector('.login-header p');
 
     if (showSignupLink && signupForm && manualLoginForm) {
+        // --- User Type Toggling ---
+        const typeIndividual = document.getElementById('type-individual');
+        const typeCompany = document.getElementById('type-company');
+        const companyGroup = document.getElementById('reg-company-group');
+        let selectedUserType = 'Individual';
+
+        const updateTypeUI = (type) => {
+            selectedUserType = type;
+            if (type === 'Individual') {
+                typeIndividual.classList.add('active');
+                typeIndividual.style.background = 'var(--primary)';
+                typeIndividual.style.color = '#05070a';
+                
+                typeCompany.classList.remove('active');
+                typeCompany.style.background = 'transparent';
+                typeCompany.style.color = 'var(--text-muted)';
+                
+                companyGroup.style.display = 'none';
+                document.getElementById('reg-company').removeAttribute('required');
+            } else {
+                typeCompany.classList.add('active');
+                typeCompany.style.background = 'var(--primary)';
+                typeCompany.style.color = '#05070a';
+                
+                typeIndividual.classList.remove('active');
+                typeIndividual.style.background = 'transparent';
+                typeIndividual.style.color = 'var(--text-muted)';
+                
+                companyGroup.style.display = 'block';
+                document.getElementById('reg-company').setAttribute('required', 'true');
+            }
+        };
+
+        if (typeIndividual) typeIndividual.addEventListener('click', () => updateTypeUI('Individual'));
+        if (typeCompany) typeCompany.addEventListener('click', () => updateTypeUI('Company'));
+
         showSignupLink.addEventListener('click', (e) => {
             e.preventDefault();
             manualLoginForm.style.display = 'none';
@@ -199,17 +235,132 @@ let currentSchedules = [];
             loginSubHeader.innerText = "Enter your credentials to manage cloud infrastructure";
         });
 
-        signupForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const username = document.getElementById('reg-username').value;
-            const password = document.getElementById('reg-password').value;
-            const displayName = document.getElementById('reg-displayname').value;
-            const company = document.getElementById('reg-company').value;
+        // --- New OTP Flow Logic ---
+        const otpModal = document.getElementById('otp-modal');
+        const otpInput = document.getElementById('otp-input');
+        const verifyOtpFinalBtn = document.getElementById('verify-otp-final-btn');
+        const resendOtpLink = document.getElementById('resend-otp-link');
+        const resendTimerWrap = document.getElementById('resend-timer-wrap');
+        const resendCount = document.getElementById('resend-count');
+        
+        let signupData = null; 
+        let resendTimerInterval;
+
+        const startResendTimer = () => {
+            let timeLeft = 60;
+            resendOtpLink.style.pointerEvents = 'none';
+            resendOtpLink.style.opacity = '0.5';
+            resendTimerWrap.style.display = 'inline';
             
-            if(username && password) {
-                registerWithBackend(username, password, displayName, company);
+            clearInterval(resendTimerInterval);
+            resendTimerInterval = setInterval(() => {
+                timeLeft--;
+                resendCount.innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(resendTimerInterval);
+                    resendOtpLink.style.pointerEvents = 'auto';
+                    resendOtpLink.style.opacity = '1';
+                    resendTimerWrap.style.display = 'none';
+                }
+            }, 1000);
+        };
+
+        const sendOtp = async (email, company) => {
+            try {
+                const res = await fetch('/api/auth/send-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, company })
+                });
+                
+                if (!res.ok) {
+                    const text = await res.text();
+                    try {
+                        const errData = JSON.parse(text);
+                        showToast(errData.message || 'Server error', 'error', 'Registration Error', 6000);
+                    } catch(e) {
+                        showToast(`Error (${res.status}): ${text.slice(0, 50)}`, 'error', 'Error', 6000);
+                    }
+                    return false;
+                }
+
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success', 'Verification Sent');
+                    document.getElementById('otp-target-email').innerText = email;
+                    otpModal.style.display = 'flex';
+                    startResendTimer();
+                    return true;
+                } else {
+                    showToast(data.message, 'error', 'Error');
+                    return false;
+                }
+            } catch (e) {
+                console.error('OTP Send Error:', e);
+                showToast(`Connection error: ${e.message}`, 'error');
+                return false;
             }
+        };
+
+        signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = signupForm.querySelector('button[type="submit"]');
+            const originalBtnText = submitBtn.innerHTML;
+
+            signupData = {
+                username: document.getElementById('reg-username').value,
+                password: document.getElementById('reg-password').value,
+                displayName: document.getElementById('reg-displayname').value,
+                company: selectedUserType === 'Individual' ? 'Individual' : document.getElementById('reg-company').value
+            };
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>SENDING CODE...</span>';
+            
+            const success = await sendOtp(signupData.username, signupData.company);
+            
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnText;
         });
+
+        if (verifyOtpFinalBtn) {
+            verifyOtpFinalBtn.addEventListener('click', async () => {
+                const otp = otpInput.value;
+                if (!otp || otp.length < 6) return showToast('Enter 6-digit code', 'warning');
+
+                verifyOtpFinalBtn.disabled = true;
+                verifyOtpFinalBtn.innerHTML = '<span>VERIFYING...</span>';
+
+                try {
+                    const res = await fetch('/api/auth/verify-otp', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: signupData.username, otp })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.success) {
+                        showToast('Email verified!', 'success');
+                        // Proceed to registration
+                        await registerWithBackend(signupData.username, signupData.password, signupData.displayName, signupData.company);
+                        otpModal.style.display = 'none';
+                    } else {
+                        showToast(data.message, 'error', 'Verification Failed');
+                    }
+                } catch (e) {
+                    showToast('Connection error', 'error');
+                } finally {
+                    verifyOtpFinalBtn.disabled = false;
+                    verifyOtpFinalBtn.innerHTML = '<span>VERIFY & REGISTER</span>';
+                }
+            });
+        }
+
+        if (resendOtpLink) {
+            resendOtpLink.addEventListener('click', () => {
+                sendOtp(signupData.username);
+            });
+        }
     }
 
     if (showRegister) {
